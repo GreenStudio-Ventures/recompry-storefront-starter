@@ -1,0 +1,49 @@
+{
+  "name": "recompry-storefront-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Starter de storefront (Next.js + Cloudflare Workers) sobre el API público de Recompry",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "cloudflare": {
+    "label": "Recompry Storefront Starter",
+    "products": ["Workers"],
+    "categories": ["storefront"],
+    "docs_url": "https://api.recompry.com/docs"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "opennextjs-cloudflare build && tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "preview": "opennextjs-cloudflare build && wrangler dev",
+    "deploy": "opennextjs-cloudflare build && wrangler deploy",
+    "cf:secrets:bulk": "wrangler secret bulk .env.production.secrets",
+    "types": "wrangler types --env-interface CloudflareEnv env.d.ts",
+    "webhook:test": "node scripts/send-test-webhook.mjs"
+  },
+  "dependencies": {
+    "next": "16.1.6",
+    "openapi-fetch": "^0.17.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "1.17.1",
+    "@types/node": "22.9.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.1.6",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.7.2",
+    "vitest": "^4.1.10",
+    "wrangler": "4.71.0"
+  }
+}

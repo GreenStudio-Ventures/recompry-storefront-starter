@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Renombra el Worker si quieres; sin `account_id` wrangler usa la cuenta de tu sesión
+  // (`wrangler login`). Si tienes varias cuentas, agrega "account_id": "…" aquí o exporta
+  // CLOUDFLARE_ACCOUNT_ID antes de desplegar.
+  "name": "recompry-storefront-starter",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "minify": true,
+  // No borra vars/secrets que hayas puesto desde el dashboard al volver a desplegar.
+  "keep_vars": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true,
+  // Variables públicas (no secretas). Los secretos (RECOMPRY_SECRET_KEY, RECOMPRY_WEBHOOK_SECRET,
+  // RECOMPRY_PUBLISHABLE_KEY) van con `npm run cf:secrets:bulk` o `wrangler secret put`.
+  "vars": {
+    "NEXT_PUBLIC_RECOMPRY_API_URL": "https://api.recompry.com"
+  }
+}

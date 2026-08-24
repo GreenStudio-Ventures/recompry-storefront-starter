@@ -1,0 +1,25 @@
+# dependencias
+/node_modules
+
+# next.js / opennext
+/.next/
+/.open-next/
+/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# wrangler
+/.wrangler
+.dev.vars
+.dev.vars.*
+env.d.ts
+
+# secrets locales (NUNCA commitear keys)
+.env
+.env.*
+!.env.example
+
+# varios
+.DS_Store
+npm-debug.log*
+/coverage
