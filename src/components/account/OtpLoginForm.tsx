@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Button, ErrorBanner, Field } from '@/components/ui';
 import { callApi, toUiError, type UiError } from '@/lib/browser-api';
+import { safeNextPath } from '@/lib/safe-next';
 
 export function OtpLoginForm({ next }: { next: string }) {
   const router = useRouter();
@@ -35,7 +36,8 @@ export function OtpLoginForm({ next }: { next: string }) {
     setError(null);
     try {
       await callApi('/api/auth/otp/verify', { body: { email, token } });
-      router.push(next);
+      // `router.push` a un destino externo hace navegación MPA: se re-sanea aunque la página ya lo hizo.
+      router.push(safeNextPath(next));
       router.refresh();
     } catch (err) {
       setError(toUiError(err));

@@ -17,6 +17,7 @@ import type { CreateOrderRequest, Order, OrderMode, PaymentMethodCode, ShippingQ
 import type { LocationOption } from '@/components/cart/CartView';
 import { QuoteIssues, QuoteSummary } from '@/components/cart/QuoteSummary';
 import { PaymentStep } from './PaymentStep';
+import { CHECKOUT_PHONE_MAX, CHECKOUT_PHONE_MIN, isCheckoutPhone } from './phone';
 
 type Props = {
   currency: string;
@@ -127,7 +128,7 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
   }
 
   const blockingIssue = quote?.issues.find((i) => ['product_not_found', 'product_unavailable', 'out_of_stock', 'selection_required', 'invalid_selection', 'no_coverage', 'address_required', 'invalid_address', 'location_closed'].includes(i.code));
-  const canSubmit = Boolean(quote && !quoting && !blockingIssue && name.trim() && phone.trim().length >= 5 && payment && (!needsAddress || (address_text ?? '').trim().length >= 3));
+  const canSubmit = Boolean(quote && !quoting && !blockingIssue && name.trim() && isCheckoutPhone(phone) && payment && (!needsAddress || (address_text ?? '').trim().length >= 3));
 
   return (
     <form onSubmit={submit}>
@@ -214,7 +215,8 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
                 <input id="co-name" className="input" required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
               </Field>
               <Field label="Teléfono" htmlFor="co-phone">
-                <input id="co-phone" className="input" required minLength={5} maxLength={30} value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" placeholder="+57 300 111 2233" />
+                {/* Mínimo 7 (no 5): el cobro con tarjeta exige PaymentCustomerInput.phone ≥ 7 y ya habría orden creada. */}
+                <input id="co-phone" className="input" required minLength={CHECKOUT_PHONE_MIN} maxLength={CHECKOUT_PHONE_MAX} value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" placeholder="+57 300 111 2233" />
               </Field>
               <div className="sm:col-span-2">
                 <Field label="Correo (opcional)" htmlFor="co-email">
@@ -227,7 +229,7 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
           {/* 3. Pago */}
           <section className="card space-y-3 p-5">
             <h3 className="font-semibold">3. Pago</h3>
-            {paymentMethods.length === 0 ? <Notice tone="warning">La tienda no tiene métodos de pago online habilitados.</Notice> : null}
+            {paymentMethods.length === 0 ? <Notice tone="warning">Ningún método de pago disponible en este starter (implementa contraentrega y tarjeta; si tu tienda usa PSE/Nequi/Bancolombia, ver README → Pendientes / TODO conocidos).</Notice> : null}
             {paymentMethods.map((m) => (
               <label key={m.code} className={cn('flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm', payment === m.code ? 'border-brand bg-brand/5' : 'border-slate-200')}>
                 <input type="radio" name="payment" value={m.code} checked={payment === m.code} onChange={() => setPayment(m.code)} className="accent-[var(--brand-primary)]" />

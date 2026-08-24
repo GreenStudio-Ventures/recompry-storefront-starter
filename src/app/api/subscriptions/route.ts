@@ -15,6 +15,9 @@ export async function POST(req: Request) {
       body,
       headers: { 'Idempotency-Key': idempotencyKey(req.headers.get('idempotency-key')) },
     });
-    return ok(unwrap(result).data, result.response.status === 201 ? 201 : 200);
+    // `deduped` viaja fuera de `data`: sin reenviarlo la UI anuncia «creada» cuando el API
+    // devolvió un contrato vivo ya existente (CreateSubscriptionResponse).
+    const created = unwrap(result);
+    return ok({ ...created.data, deduped: created.deduped }, result.response.status === 201 ? 201 : 200);
   });
 }

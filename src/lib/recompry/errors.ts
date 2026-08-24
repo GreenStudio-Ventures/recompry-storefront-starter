@@ -54,9 +54,12 @@ export function isApiError(err: unknown): err is RecompryApiError {
 /** Normaliza cualquier error (API, red, bug) a un envelope + status HTTP para responder desde route handlers. */
 export function toErrorResponse(err: unknown): { status: number; body: ErrorResponse } {
   if (isApiError(err)) return { status: err.status || 502, body: err.toEnvelope() };
-  const message = err instanceof Error ? err.message : 'Error inesperado';
+  // Un error que no viene del API es un bug o un problema de configuración del servidor
+  // (p. ej. "Falta RECOMPRY_SECRET_KEY…" o el TypeError de un header inválido que refleja
+  // input del cliente): su mensaje NO va al browser. `handle()` lo escribe en console.error junto
+  // con este `request_id` propio, que es lo único que sirve para correlacionar respuesta y log.
   return {
     status: 500,
-    body: { ok: false, code: 'internal_error', error: message, request_id: 'local' },
+    body: { ok: false, code: 'internal_error', error: 'Error interno. Inténtalo de nuevo.', request_id: crypto.randomUUID() },
   };
 }

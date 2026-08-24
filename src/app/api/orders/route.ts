@@ -1,4 +1,5 @@
 import { handle, ok, readJson, badRequest, optionalBuyer } from '@/lib/api-route';
+import { rememberGuestOrder } from '@/lib/guest-orders';
 import { serverApi, idempotencyKey } from '@/lib/recompry/server';
 import { unwrap } from '@/lib/recompry/errors';
 import type { CreateOrderRequest } from '@/lib/recompry/types';
@@ -23,6 +24,10 @@ export async function POST(req: Request) {
       headers: { 'Idempotency-Key': key },
     });
     const order = unwrap(result).data;
+    // Liga la orden a este navegador: /payment y /payments sin sesión solo aceptan ids de esta
+    // cookie, porque "sin X-Buyer-Token la key secreta puede consultar cualquier orden por
+    // order_number" (doc del API). Se guarda también con sesión por si vence antes de pagar.
+    await rememberGuestOrder(order.id);
     return ok(order, result.response.status === 201 ? 201 : 200);
   });
 }

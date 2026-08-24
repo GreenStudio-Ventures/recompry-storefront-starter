@@ -3,6 +3,11 @@
 // Header: `X-Recompry-Signature: t=<unix>,v1=<hex hmac_sha256(secret, `${t}.${rawBody}`)>`
 // Se verifica sobre el BODY CRUDO (no re-serialices el JSON) y se rechaza `t` con más de
 // 5 minutos de diferencia. Implementado con WebCrypto para correr igual en Node, Workers y tests.
+//
+// Recompry firma con este mismo header DOS mecanismos con payloads distintos:
+// - webhook_endpoints del API público (`POST /v1/webhook-endpoints`): envelope v1 con `event_id`.
+// - Automatizaciones del dashboard (Configuración → Automatizaciones → acción "webhook"):
+//   `{ event, order, organization, sent_at }` SIN `event_id`. `normalizeWebhookEvent` acepta ambos.
 
 export const SIGNATURE_HEADER = 'x-recompry-signature';
 export const DEFAULT_TOLERANCE_SECONDS = 300;
@@ -15,6 +20,94 @@ export type RecompryWebhookEvent<T = unknown> = {
   data: T;
   api_version: 'v1';
 };
+
+/**
+ * Payload de las Automatizaciones del dashboard (shape de cf-re-app `OrderEventPayload`).
+ * No es el envelope v1: no hay `event_id`, `data` ni `api_version`; la orden viene resumida.
+ */
+export type RecompryAutomationPayload = {
+  event: 'order.created' | 'order.paid' | 'order.stage_changed' | (string & {});
+  order: {
+    id: string;
+    tracking_code: string | null;
+    order_number: number | string | null;
+    stage_from: string | null;
+    stage_to: string | null;
+    order_type: string | null;
+    order_origin: string | null;
+    source: string | null;
+    total: number;
+    currency: string | null;
+    customer: { name: string | null; phone: string | null };
+  };
+  organization: { id: string; slug: string | null; name: string | null };
+  sent_at: string;
+};
+
+export type NormalizedWebhookEvent =
+  | {
+      source: 'endpoint';
+      event: string;
+      /** `event_id` del envelope. */
+      dedupeKey: string;
+      occurredAt: string | null;
+      organizationSlug: string | null;
+      payload: RecompryWebhookEvent;
+    }
+  | {
+      source: 'automation';
+      event: string;
+      /** Derivada: `event:order.id:stage_from:stage_to` (no hay `event_id`). */
+      dedupeKey: string;
+      occurredAt: string | null;
+      organizationSlug: string | null;
+      payload: RecompryAutomationPayload;
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Reconoce el body ya verificado (envelope v1 o Automatización) y devuelve una vista común con
+ * la clave de dedupe. `null` = ninguno de los dos shapes (responde 400). Nunca exige `event_id`:
+ * las Automatizaciones no lo traen y rechazarlas marcaría la regla como fallida en el dashboard.
+ */
+export function normalizeWebhookEvent(raw: unknown): NormalizedWebhookEvent | null {
+  if (!isRecord(raw) || typeof raw.event !== 'string' || !raw.event) return null;
+  const organization = isRecord(raw.organization) ? raw.organization : null;
+  const organizationSlug = typeof organization?.slug === 'string' ? organization.slug : null;
+
+  if (typeof raw.event_id === 'string' && raw.event_id) {
+    const payload = raw as unknown as RecompryWebhookEvent;
+    return {
+      source: 'endpoint',
+      event: payload.event,
+      dedupeKey: payload.event_id,
+      occurredAt: typeof raw.occurred_at === 'string' ? raw.occurred_at : null,
+      organizationSlug,
+      payload,
+    };
+  }
+
+  const order = isRecord(raw.order) ? raw.order : null;
+  if (order && typeof order.id === 'string' && order.id) {
+    const payload = raw as unknown as RecompryAutomationPayload;
+    // Un reintento de la misma transición repite exactamente estos valores (es la misma clave de
+    // idempotencia que usa el dashboard); una transición nueva de la misma orden no colisiona.
+    const stageFrom = typeof order.stage_from === 'string' ? order.stage_from : '';
+    const stageTo = typeof order.stage_to === 'string' ? order.stage_to : '';
+    return {
+      source: 'automation',
+      event: payload.event,
+      dedupeKey: `${payload.event}:${order.id}:${stageFrom}:${stageTo}`,
+      occurredAt: typeof raw.sent_at === 'string' ? raw.sent_at : null,
+      organizationSlug,
+      payload,
+    };
+  }
+  return null;
+}
 
 export type VerifyOptions = {
   toleranceSeconds?: number;
@@ -91,8 +184,8 @@ export async function verifyWebhookSignature(
 }
 
 /**
- * Dedupe por `event_id` en memoria (los reintentos del API pueden entregar el mismo evento
- * más de una vez). En Cloudflare Workers la memoria es por isolate y efímera: para producción
+ * Dedupe por clave de evento en memoria (los reintentos del API pueden entregar el mismo evento
+ * más de una vez; la clave sale de `normalizeWebhookEvent`). En Cloudflare Workers la memoria es por isolate y efímera: para producción
  * persiste los ids vistos en KV/D1/tu base de datos.
  */
 export class InMemoryEventDedupe {

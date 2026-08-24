@@ -7,6 +7,7 @@ import { cn } from '@/lib/cn';
 import { formatMoney } from '@/lib/format';
 import type { OrderMode } from '@/lib/recompry/types';
 import { Button, EmptyState, ErrorBanner, Field, LinkButton, SectionTitle, Spinner } from '@/components/ui';
+import { matchQuotedLines } from './quoted-lines';
 import { QuoteIssues, QuoteSummary } from './QuoteSummary';
 
 export type LocationOption = {
@@ -24,6 +25,8 @@ export function CartView({ currency, modes, locations }: { currency: string; mod
   const needsAddress = mode === 'delivery' || mode === 'shipping';
   const needsLocation = mode === 'pickup' || mode === 'dine_in';
   const lineName = (productId: string) => state.lines.find((l) => l.product_id === productId)?.name;
+  // Alineación posicional (ver quoted-lines.ts): producto+variante+cantidad mezclaba líneas con distintos extras.
+  const quotedByKey = matchQuotedLines(state.lines, quote);
   const blocking = quote?.issues.some((i) => ['product_not_found', 'product_unavailable', 'out_of_stock', 'selection_required', 'invalid_selection', 'no_coverage', 'address_required', 'invalid_address'].includes(i.code));
 
   if (!hydrated) {
@@ -45,7 +48,7 @@ export function CartView({ currency, modes, locations }: { currency: string; mod
         <div className="space-y-6">
           <ul className="card divide-y divide-slate-100">
             {state.lines.map((line) => {
-              const quoted = quote?.lines.find((q) => q.product_id === line.product_id && (q.variant_id ?? undefined) === (line.variant_id ?? undefined) && q.quantity === line.quantity);
+              const quoted = quotedByKey.get(line.key);
               const unit = quoted?.unit_price ?? line.unit_price_hint;
               return (
                 <li key={line.key} className="flex gap-3 p-4">

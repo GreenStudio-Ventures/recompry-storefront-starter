@@ -52,9 +52,11 @@ const STAGE_TONE: Record<string, 'neutral' | 'info' | 'success' | 'danger' | 'wa
 };
 
 export default async function AccountPage() {
-  const { session, refreshed } = await getBuyerSession();
+  // Página: no renueva (rotaría el refresh_token sin poder guardar el nuevo). Vencida →
+  // <SessionRefresher/> pasa por /api/auth/refresh, que sí persiste, y re-renderiza.
+  const { session, expired } = await getBuyerSession({ refresh: false });
+  if (expired) return <SessionRefresher next="/account" />;
   if (!session) redirect('/account/login?next=/account');
-  if (refreshed) return <SessionRefresher next="/account" />;
 
   const api = serverApi(session.access_token);
   const [me, addresses, orders, subscriptions, loyalty, credits, waitlist] = await Promise.all([

@@ -5,6 +5,11 @@
 // pasa por route handlers para poder adjuntar la sesión del comprador (cookie httpOnly).
 import { createRecompryClient, type RecompryClient } from './index';
 
+// Base del API. Por defecto no hace falta configurarla. Para un entorno propio hay dos vías y NO
+// se mezclan: si NEXT_PUBLIC_RECOMPRY_API_URL está en .env.local / .env.production al hacer el
+// build, Next la inlinea en el bundle y el `vars` de wrangler.jsonc deja de tener efecto; si no
+// está al compilar, el Worker la lee en runtime del binding `vars`. No la subas como secreto
+// (`cf:secrets:bulk`): colisiona con el binding de `vars` del mismo nombre.
 export const RECOMPRY_API_URL = process.env.NEXT_PUBLIC_RECOMPRY_API_URL || 'https://api.recompry.com';
 
 let cached: RecompryClient | null = null;

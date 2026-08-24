@@ -11,6 +11,7 @@ import { callApi, toUiError, type UiError } from '@/lib/browser-api';
 import { formatMoney } from '@/lib/format';
 import type { Order, PaymentConfig, PaymentResult, PaymentStatus } from '@/lib/recompry/types';
 import { tokenizeCardWithWompi } from '@/lib/wompi';
+import { paymentPhone } from './phone';
 
 type Props = {
   order: Order;
@@ -65,7 +66,8 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
           method: 'card',
           token,
           installments,
-          customer: { email: email.trim(), full_name: card.card_holder.trim(), phone: customer.phone || undefined },
+          // phone es opcional aquí y tiene minLength 7: un valor corto (p.ej. de un buyer viejo) tumba el cobro con 400.
+          customer: { email: email.trim(), full_name: card.card_holder.trim(), phone: paymentPhone(customer.phone) },
           redirect_url: `${window.location.origin}/track/${order.tracking_code ?? order.id}`,
         },
         headers: { 'Idempotency-Key': idem.current },

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ApiImage } from './ApiImage';
 import { Price } from './Price';
 import { Badge } from './ui';
+import { availabilityBadge } from './availability';
 import type { ImageSet } from '@/lib/recompry/types';
 
 /** Shape mínimo común entre `Product` (catálogo) y `SearchProduct` (búsqueda). */
@@ -24,11 +25,11 @@ export function productHref(p: Pick<ProductCardData, 'id' | 'slug'>) {
   return `/p/${encodeURIComponent(p.slug ?? p.id)}`;
 }
 
+// La lógica vive en ./availability.ts: `Product` y `SearchProduct` usan enums distintos
+// (out_of_stock/low_stock vs sold_out/waitlist/coming_soon) y la búsqueda no trae `is_waitlist_enabled`.
 export function AvailabilityBadge({ p }: { p: ProductCardData }) {
-  if (p.is_waitlist_enabled && p.is_available === false) return <Badge tone="info">Próximamente</Badge>;
-  if (p.is_available === false || p.availability === 'out_of_stock') return <Badge tone="danger">Agotado</Badge>;
-  if (p.availability === 'low_stock') return <Badge tone="warning">Pocas unidades</Badge>;
-  return null;
+  const spec = availabilityBadge(p);
+  return spec ? <Badge tone={spec.tone}>{spec.label}</Badge> : null;
 }
 
 export function ProductCard({ product, priority = false }: { product: ProductCardData; priority?: boolean }) {

@@ -49,25 +49,42 @@ export function isExpired(session: BuyerSession, skewSeconds = REFRESH_SKEW_SECO
   return session.expires_at - skewSeconds <= Math.floor(Date.now() / 1000);
 }
 
+export type BuyerSessionState = {
+  /** Sesión VIGENTE (nunca vencida) o null. */
+  session: BuyerSession | null;
+  /** true si `session` salió de `/v1/auth/refresh` y todavía no está en la cookie: hay que persistirla. */
+  refreshed: boolean;
+  /** true si hay cookie pero el access_token venció (o vence en <60 s) y NO se renovó (`refresh: false`). */
+  expired: boolean;
+};
+
 /**
- * Sesión vigente para usar en `X-Buyer-Token`. Si el access_token está por vencer intenta
- * renovarlo con `POST /v1/auth/refresh`; en server components no se puede reescribir la
- * cookie, así que devolvemos `{ session, refreshed }` y quien pueda (route handler / server
- * action) persiste la nueva. Si no se puede renovar devuelve null (hay que volver a loguear).
+ * Sesión vigente para usar en `X-Buyer-Token`.
+ *
+ * - `{ refresh: true }` (default; SOLO route handlers): si el access_token está por vencer lo
+ *   renueva con `POST /v1/auth/refresh` y devuelve `refreshed: true` para que el caller lo
+ *   persista con `writeBuyerSession()`.
+ * - `{ refresh: false }` (server components / páginas): nunca llama al API. El refresh ROTA el
+ *   token ("el anterior deja de servir") y una página no puede reescribir la cookie, así que
+ *   renovar desde ahí consume el refresh_token y deja al comprador sin sesión (o crea su
+ *   pedido como invitado). La página recibe `expired: true` y decide: renderizar
+ *   `<SessionRefresher/>` (que sí pasa por un handler) o mandar al login.
  */
-export async function getBuyerSession(): Promise<{ session: BuyerSession | null; refreshed: boolean }> {
+export async function getBuyerSession(opts: { refresh?: boolean } = {}): Promise<BuyerSessionState> {
+  const refresh = opts.refresh ?? true;
   const current = await readBuyerSession();
-  if (!current) return { session: null, refreshed: false };
-  if (!isExpired(current)) return { session: current, refreshed: false };
+  if (!current) return { session: null, refreshed: false, expired: false };
+  if (!isExpired(current)) return { session: current, refreshed: false, expired: false };
+  if (!refresh) return { session: null, refreshed: false, expired: true };
   try {
     const { data } = await serverApi().POST('/v1/auth/refresh', {
       body: { refresh_token: current.refresh_token },
     });
-    if (data?.data) return { session: data.data, refreshed: true };
+    if (data?.data) return { session: data.data, refreshed: true, expired: false };
   } catch {
     // red caída: tratamos la sesión como inválida
   }
-  return { session: null, refreshed: false };
+  return { session: null, refreshed: false, expired: false };
 }
 
 export async function writeBuyerSession(session: BuyerSession): Promise<void> {

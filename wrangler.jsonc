@@ -18,6 +18,13 @@
     "enabled": true
   },
   "upload_source_maps": true,
+  // Rate limit nativo de Workers para /api/auth/otp/send (relay de OTP con la publishable key):
+  // sin él cualquiera manda códigos a correos arbitrarios y agota el bucket del API que comparte
+  // el SSR de la tienda. `period` solo admite 10 o 60; `namespace_id` es un id arbitrario por Worker.
+  "ratelimits": [
+    { "name": "OTP_RATE_LIMITER_EMAIL", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } },
+    { "name": "OTP_RATE_LIMITER_IP", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } }
+  ],
   // Variables públicas (no secretas). Los secretos (RECOMPRY_SECRET_KEY, RECOMPRY_WEBHOOK_SECRET,
   // RECOMPRY_PUBLISHABLE_KEY) van con `npm run cf:secrets:bulk` o `wrangler secret put`.
   "vars": {

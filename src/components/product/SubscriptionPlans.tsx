@@ -17,7 +17,7 @@ export function SubscriptionPlans({ productId, plans, currency }: { productId: s
   const [choice, setChoice] = useState<{ plan: string; frequency: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
-  const [created, setCreated] = useState<Subscription | null>(null);
+  const [created, setCreated] = useState<(Subscription & { deduped?: boolean }) | null>(null);
 
   async function subscribe() {
     if (!choice) return;
@@ -47,7 +47,13 @@ export function SubscriptionPlans({ productId, plans, currency }: { productId: s
   }
 
   if (created) {
-    return (
+    // `deduped`: el API devolvió el contrato vivo que ya existía; decir «creada» engaña al comprador.
+    return created.deduped ? (
+      <Notice tone="info">
+        Ya tenías esta suscripción activa (estado: {created.status}); no se creó otra. Gestiónala en{' '}
+        <a href="/account#suscripciones" className="font-semibold underline">tu cuenta</a>.
+      </Notice>
+    ) : (
       <Notice tone="success">
         Suscripción creada (estado: {created.status}). Revisa el primer ciclo en{' '}
         <a href="/account#suscripciones" className="font-semibold underline">tu cuenta</a>.
