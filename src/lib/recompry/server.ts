@@ -4,13 +4,20 @@
 import 'server-only';
 import { createRecompryClient, type RecompryClient } from './index';
 import { RECOMPRY_API_URL } from './client';
+import { RecompryApiError } from './errors';
 
 export function serverApi(buyerToken?: string | null): RecompryClient {
   const apiKey = process.env.RECOMPRY_SECRET_KEY;
   if (!apiKey) {
-    throw new Error(
-      'Falta RECOMPRY_SECRET_KEY. Emite una key rcp_sk_* en app.recompry.com → Configuración → API keys (solo servidor, nunca en el browser).',
-    );
+    // RecompryApiError (no Error pelado) para que `handle()` lo devuelva como 503 legible en vez
+    // de un 500 opaco: navegar la tienda demo NO necesita esta key, solo vender.
+    throw new RecompryApiError(503, {
+      code: 'secret_key_missing',
+      error:
+        'Falta RECOMPRY_SECRET_KEY: esta acción escribe en la tienda. Emite una key rcp_sk_* en ' +
+        'app.recompry.com → Configuración → API keys (preset «Tienda headless (starter)») y ponla en .env.local. ' +
+        'El catálogo y el carrito funcionan sin ella.',
+    });
   }
   return createRecompryClient({ apiKey, baseUrl: RECOMPRY_API_URL, buyerToken: buyerToken ?? undefined });
 }

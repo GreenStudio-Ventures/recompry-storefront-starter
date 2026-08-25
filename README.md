@@ -22,12 +22,26 @@ Qué incluye:
 
 ## 1. Consigue tus keys
 
-En el dashboard del negocio (**app.recompry.com → Configuración → API keys**; el menú solo lo ven los roles
-**owner/admin**) emite:
+> **Las keys son de Recompry, no de Supabase.** Un integrador nunca toca la base de datos: todo pasa por
+> `https://api.recompry.com` con una key `rcp_…` que emite el dueño de la tienda.
+
+**¿Solo quieres verlo correr?** `cp .env.example .env.local && npm run dev`: el archivo ya trae la key de la
+**tienda demo pública** (Greenstudio Store, 690 productos reales, solo lectura). Catálogo, búsqueda, ficha de
+producto, carrito y cotización de envío funcionan sin registrarte. El checkout no: necesita una key secreta tuya.
+
+**Para vender necesitas tu propia tienda.** Tres situaciones:
+
+| Tu caso | Qué hacer |
+|---|---|
+| Ya tienes tienda en Recompry | Entra a [app.recompry.com](https://app.recompry.com) → **Configuración → API keys** (menú visible para **owner/admin**) y emite las dos keys de abajo. |
+| Construyes para un cliente | Pídele a quien administra la tienda que emita las keys y te las comparta. Los scopes se fijan al crear: dile que use el preset **«Ventas»**. |
+| No tienes tienda todavía | Crea una en [app.recompry.com](https://app.recompry.com) (acceso por correo, sin contraseña) y completa el onboarding; al terminar eres owner y ya puedes emitir keys. |
+
+En **Configuración → API keys** emite:
 
 - una **publishable key** `rcp_pk_…`: scopes fijos de solo lectura (`store:read`, `catalog:read`, `shipping:read`) para
   tienda, catálogo, búsqueda, cotizaciones y tracking, y
-- una **secret key** `rcp_sk_…`. Al crearla pulsa el preset **«Tienda headless (starter)»**: marca `orders:write`,
+- una **secret key** `rcp_sk_…`. Al crearla pulsa el preset **«Ventas»** (o marca los scopes a mano): marca `orders:write`,
   `customers:write`, `payments:write` y `subscriptions:write`. Los scopes de lectura (`store:read`, `catalog:read`,
   `inventory:read`, `shipping:read`, `orders:read`, `customers:read`, `subscriptions:read`, `loyalty:read`) van
   **siempre incluidos** y no se pueden quitar (el starter usa `store:read` para renovar la sesión y `catalog:read`

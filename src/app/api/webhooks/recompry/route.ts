@@ -15,7 +15,18 @@ export async function POST(req: Request) {
   const secret = process.env.RECOMPRY_WEBHOOK_SECRET;
   if (!secret) {
     console.error('[webhook] RECOMPRY_WEBHOOK_SECRET no está configurado');
-    return NextResponse.json({ ok: false, code: 'webhook_not_configured', error: 'Webhook sin secreto.' }, { status: 500 });
+    // 503 y no 500: no es un fallo del código, es que falta configurar RECOMPRY_WEBHOOK_SECRET
+    // (el emisor reintenta, y un 5xx honesto evita marcar como entregado algo que no verificamos).
+    return NextResponse.json(
+      {
+        ok: false,
+        code: 'webhook_not_configured',
+        error:
+          'Falta RECOMPRY_WEBHOOK_SECRET. Lo devuelve UNA sola vez POST /v1/webhook-endpoints (o la acción ' +
+          'webhook de Configuración → Automatizaciones). Sin él no se puede verificar la firma.',
+      },
+      { status: 503 },
+    );
   }
 
   // Firma sobre el body CRUDO: nunca parsear antes de verificar.
