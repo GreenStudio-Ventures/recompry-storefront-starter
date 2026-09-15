@@ -55,7 +55,15 @@ export default async function TrackPage({ params, searchParams }: Props) {
         </Notice>
       ) : null}
       <SectionTitle
-        title={`Pedido ${tracking.tracking_code}`}
+        // El código va fuera de la tipografía de títulos: es una cursiva (Pacifico) y un código
+        // alfanumérico en cursiva no se puede leer carácter por carácter. Monoespaciada, con más
+        // espaciado entre letras y `select-all` para copiarlo de un toque.
+        title={
+          <>
+            Pedido{' '}
+            <span className="select-all font-mono text-[0.8em] font-semibold tracking-[0.12em]">{tracking.tracking_code}</span>
+          </>
+        }
         subtitle={`${ORDER_TYPE_LABEL[tracking.order_type] ?? tracking.order_type}${tracking.location?.name ? ` · ${tracking.location.name}` : ''}`}
         action={tracking.stage === 'canceled' ? <Badge tone="danger">Cancelado</Badge> : tracking.stage === 'delivered' ? <Badge tone="success">Entregado</Badge> : <Badge tone="info">En curso</Badge>}
       />
