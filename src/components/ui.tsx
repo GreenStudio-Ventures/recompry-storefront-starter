@@ -99,7 +99,7 @@ export function Badge({
   );
 }
 
-export function SectionTitle({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
+export function SectionTitle({ title, subtitle, action }: { title: ReactNode; subtitle?: string; action?: ReactNode }) {
   return (
     <div className="mb-5 flex items-end justify-between gap-4">
       <div>
