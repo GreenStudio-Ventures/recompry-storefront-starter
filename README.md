@@ -121,7 +121,10 @@ desde `/v1/openapi.json`). Cuando el paquete esté en npm, instálalo y borra la
    browser por intento: reintentar devuelve la misma orden; cambiar el body genera otra key.
 3. Contraentrega → la orden queda confirmada y redirige a `/track/{tracking_code}`.
 4. Tarjeta (Wompi) → `PaymentStep` lee `GET /v1/payments/config` (llave pública + ambiente), tokeniza la tarjeta en el
-   browser y llama `POST /api/orders/{id}/payments`; si el pago queda `pending` (3DS) sondea `GET …/payment`.
+   browser y llama `POST /api/orders/{id}/payments` con `browser_info` (datos del navegador → el cobro se pide con
+   **3-D Secure v2**). Si el pago queda `pending` sondea `GET …/payment` cada 2,5 s y monta `three_ds.render_html` en un
+   iframe: BROWSER_INFO y FINGERPRINT ocultos (se ejecutan solos), CHALLENGE visible para que el comprador responda a su
+   banco. `final: true` corta el sondeo (aprobado → `/track`, rechazado → volver al checkout).
 
 ### Sesión del comprador
 
@@ -279,6 +282,8 @@ Lo que **tú debes añadir** en producción:
 
 - **Wompi**: `src/lib/wompi.ts` tokeniza con la llave pública contra `/v1/tokens/cards` de Wompi; verifica el flujo
   contra la documentación oficial o usa Wompi JS/Widget para reducir el alcance PCI. Falta el `session_id` anti-fraude.
+  El 3DS ya está cableado (`browser_info` + iframe); si un emisor bloquea el reto dentro de un iframe anidado, el
+  fallback es abrirlo en un popup (no implementado).
 - Solo `cash_on_delivery` y `wompi_cards` en el checkout; PSE, Nequi y Botón Bancolombia (`POST /v1/orders/{id}/payments`
   con `method: pse | nequi | bancolombia_button` y `async_payment_url`) no tienen UI todavía.
 - Canje de créditos/puntos en el carrito (`credits_to_redeem_cents`, `loyalty_points_to_redeem`) no está expuesto en la UI.

@@ -3,15 +3,15 @@
 // Cobro con Wompi de una orden creada con `wompi_cards`:
 //   1. GET /api/payments/config → public_key + environment + tokens de aceptación.
 //   2. Tokeniza la tarjeta en el browser (src/lib/wompi.ts — ver TODO allí).
-//   3. POST /api/orders/{id}/payments { method:'card', token, installments, customer } con Idempotency-Key.
-//   4. Si `final` es false (3DS), sondea GET /api/orders/{id}/payment hasta que lo sea.
+//   3. POST /api/orders/{id}/payments { method:'card', token, installments, customer, browser_info } con Idempotency-Key.
+//   4. Si `final` es false (3-D Secure, banco…), sondea GET /api/orders/{id}/payment hasta que lo sea y monta el
+//      HTML de cada paso 3DS (`three_ds.render_html`) en un iframe: oculto salvo en el reto (CHALLENGE).
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, ErrorBanner, Field, Notice, SectionTitle, Spinner } from '@/components/ui';
 import { callApi, toUiError, type UiError } from '@/lib/browser-api';
 import { formatMoney } from '@/lib/format';
-import type { Order, PaymentConfig, PaymentResult, PaymentStatus } from '@/lib/recompry/types';
+import type { CreatePaymentRequest, Order, PaymentConfig, PaymentResult, PaymentStatus } from '@/lib/recompry/types';
 import { tokenizeCardWithWompi } from '@/lib/wompi';
-import { paymentPhone } from './phone';
 
 type Props = {
   order: Order;
@@ -19,6 +19,25 @@ type Props = {
   onPaid: () => void;
   onRestart: () => void;
 };
+
+type BrowserInfo = NonNullable<Extract<CreatePaymentRequest, { method: 'card' }>['browser_info']>;
+
+// 3-D Secure v2 exige los datos del navegador del pagador para el device fingerprinting del emisor.
+// Si algo falla se omite y el cobro sale sin 3DS en vez de romperse.
+function collectBrowserInfo(): BrowserInfo | undefined {
+  try {
+    return {
+      browser_color_depth: String(window.screen.colorDepth),
+      browser_screen_height: String(window.screen.height),
+      browser_screen_width: String(window.screen.width),
+      browser_language: window.navigator.language,
+      browser_user_agent: window.navigator.userAgent,
+      browser_tz: String(new Date().getTimezoneOffset()),
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
   const [config, setConfig] = useState<PaymentConfig | null>(null);
@@ -35,7 +54,7 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
     callApi<PaymentConfig>('/api/payments/config').then(setConfig).catch((err) => setError(toUiError(err)));
   }, []);
 
-  // Sondeo mientras el pago no sea final (3DS, app del banco…).
+  // Sondeo mientras el pago no sea final (3DS, app del banco…). Cada respuesta trae el paso 3DS vigente.
   useEffect(() => {
     if (!result || result.final) return;
     const timer = setInterval(async () => {
@@ -46,7 +65,7 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
       } catch (err) {
         setError(toUiError(err));
       }
-    }, 3000);
+    }, 2500);
     return () => clearInterval(timer);
   }, [result, order.id]);
 
@@ -66,9 +85,9 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
           method: 'card',
           token,
           installments,
-          // phone es opcional aquí y tiene minLength 7: un valor corto (p.ej. de un buyer viejo) tumba el cobro con 400.
-          customer: { email: email.trim(), full_name: card.card_holder.trim(), phone: paymentPhone(customer.phone) },
+          customer: { email: email.trim(), full_name: card.card_holder.trim(), phone: customer.phone },
           redirect_url: `${window.location.origin}/track/${order.tracking_code ?? order.id}`,
+          browser_info: collectBrowserInfo(),
         },
         headers: { 'Idempotency-Key': idem.current },
       });
@@ -83,6 +102,7 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
   }
 
   const declined = result && (result.status === 'declined' || result.status === 'error');
+  const threeDs = result && !result.final ? result.three_ds : null;
 
   return (
     <div className="mx-auto max-w-lg">
@@ -103,9 +123,40 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
           <Button onClick={onRestart}>Volver al checkout</Button>
         </div>
       ) : result && !result.final ? (
-        <Notice tone="info">
-          <span className="inline-flex items-center gap-2"><Spinner className="h-4 w-4" /> Esperando confirmación del banco… no cierres esta página.</span>
-        </Notice>
+        <div className="space-y-3">
+          <Notice tone="info">
+            <span className="inline-flex items-start gap-2">
+              <Spinner className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {threeDs?.interactive
+                  ? 'Tu banco necesita verificar que eres tú. Completa la verificación aquí abajo — no cierres esta página.'
+                  : threeDs
+                    ? 'Autenticando tu pago de forma segura con tu banco. No cierres esta página.'
+                    : 'Esperando confirmación del banco… no cierres esta página.'}
+              </span>
+            </span>
+          </Notice>
+          {/* 3-D Secure. BROWSER_INFO y FINGERPRINT traen HTML que se ejecuta solo: va oculto pero DEBE
+              montarse o la autenticación no avanza. CHALLENGE es el único que el comprador ve y responde.
+              El API ya decodificó el HTML de Wompi; se monta con `srcDoc` (con `src` no funciona). */}
+          {threeDs?.render_html ? (
+            threeDs.interactive ? (
+              <div className="card overflow-hidden">
+                {/* Sello obligatorio por políticas de Mastercard mientras se autentica. */}
+                <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-medium text-slate-600">
+                  <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+                    <path d="m9 12 2 2 4-4" />
+                  </svg>
+                  Verificación segura · 3-D Secure
+                </div>
+                <iframe key={threeDs.step} title="Verificación de tu banco" srcDoc={threeDs.render_html} className="block h-[460px] w-full border-0" allow="clipboard-write" />
+              </div>
+            ) : (
+              <iframe key={threeDs.step} title="Autenticación 3-D Secure" srcDoc={threeDs.render_html} className="pointer-events-none absolute h-0 w-0 border-0 opacity-0" aria-hidden="true" tabIndex={-1} />
+            )
+          ) : null}
+        </div>
       ) : config?.public_key ? (
         <form onSubmit={pay} className="card space-y-4 p-5">
           {config.environment === 'sandbox' ? <Notice tone="warning">Ambiente sandbox: usa tarjetas de prueba de Wompi.</Notice> : null}
@@ -138,7 +189,7 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
           <Button type="submit" size="lg" className="w-full" loading={paying} disabled={config.acceptance_tokens ? !accepted : false}>
             Pagar {formatMoney(order.totals.grand_total, order.totals.currency_code)}
           </Button>
-          <p className="text-center text-xs text-slate-400">El monto lo fija la tienda (grand_total de la orden); la tarjeta se tokeniza con la llave pública de Wompi.</p>
+          <p className="text-center text-xs text-slate-400">El monto lo fija la tienda (grand_total de la orden); la tarjeta se tokeniza con la llave pública de Wompi. Tu banco puede pedir una verificación (3-D Secure).</p>
         </form>
       ) : (
         <ErrorBanner error={error} />
