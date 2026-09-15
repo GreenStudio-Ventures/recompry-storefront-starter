@@ -1,144 +1,198 @@
 'use client';
 
-// Cobro con Wompi de una orden creada con `wompi_cards`:
-//   1. GET /api/payments/config → public_key + environment + tokens de aceptación.
-//   2. Tokeniza la tarjeta en el browser (src/lib/wompi.ts — ver TODO allí).
-//   3. POST /api/orders/{id}/payments { method:'card', token, installments, customer, browser_info } con Idempotency-Key.
-//   4. Si `final` es false (3-D Secure, banco…), sondea GET /api/orders/{id}/payment hasta que lo sea y monta el
-//      HTML de cada paso 3DS (`three_ds.render_html`) en un iframe: oculto salvo en el reto (CHALLENGE).
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, ErrorBanner, Field, Notice, SectionTitle, Spinner } from '@/components/ui';
+// Cobro online de una orden ya creada (métodos `wompi_*`). Este componente es el SHELL:
+//   1. GET /api/payments/config → llave pública, ambiente y tokens de aceptación.
+//   2. Pinta el formulario del método con el que se creó la orden (PaymentForms.tsx).
+//   3. POST /api/orders/{id}/payments con Idempotency-Key.
+//   4. Según el método:
+//      · tarjeta  → puede quedar `pending` por 3-D Secure: se monta `three_ds.render_html` en un
+//                   iframe (oculto en BROWSER_INFO/FINGERPRINT, visible en CHALLENGE) y se sondea.
+//      · PSE / Bancolombia → llega `async_payment_url`: navegación COMPLETA al banco. El banco
+//                   devuelve al comprador a /pago/{id}, que sondea hasta el estado final.
+//      · Nequi    → no hay a dónde ir: el comprador aprueba el push en su app y aquí se sondea.
+// Un rechazo ANULA la orden (el API la deja VOIDED/CANCELED): no se puede reintentar sobre la
+// misma orden, hay que crear un pedido nuevo.
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Button, ErrorBanner, LinkButton, Notice, SectionTitle, Spinner } from '@/components/ui';
 import { callApi, toUiError, type UiError } from '@/lib/browser-api';
+import { clearPendingPayment, savePendingPayment } from '@/lib/checkout/pending-payment';
 import { formatMoney } from '@/lib/format';
 import type { CreatePaymentRequest, Order, PaymentConfig, PaymentResult, PaymentStatus } from '@/lib/recompry/types';
-import { tokenizeCardWithWompi } from '@/lib/wompi';
+import { BancolombiaForm, CardForm, NequiForm, PseForm, type PayerContact } from './PaymentForms';
 
 type Props = {
   order: Order;
-  customer: { email: string; full_name: string; phone: string };
+  customer: PayerContact;
   onPaid: () => void;
   onRestart: () => void;
 };
 
-type BrowserInfo = NonNullable<Extract<CreatePaymentRequest, { method: 'card' }>['browser_info']>;
+/** Cada cuánto se consulta el estado mientras el pago no es final (cadencia que documenta el API). */
+const POLL_MS = 2500;
+/** Tope del sondeo en esta página. Al agotarse NO se ofrece reintentar: el webhook reconcilia. */
+const POLL_MAX_MS = 3 * 60_000;
 
-// 3-D Secure v2 exige los datos del navegador del pagador para el device fingerprinting del emisor.
-// Si algo falla se omite y el cobro sale sin 3DS en vez de romperse.
-function collectBrowserInfo(): BrowserInfo | undefined {
-  try {
-    return {
-      browser_color_depth: String(window.screen.colorDepth),
-      browser_screen_height: String(window.screen.height),
-      browser_screen_width: String(window.screen.width),
-      browser_language: window.navigator.language,
-      browser_user_agent: window.navigator.userAgent,
-      browser_tz: String(new Date().getTimezoneOffset()),
-    };
-  } catch {
-    return undefined;
-  }
-}
+const TITLE: Record<string, string> = {
+  wompi_cards: 'Pago con tarjeta',
+  wompi_pse: 'Pago con PSE',
+  wompi_nequi: 'Pago con Nequi',
+  wompi_bancolombia_button: 'Pago con Botón Bancolombia',
+};
 
 export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
   const [config, setConfig] = useState<PaymentConfig | null>(null);
+  const [configTry, setConfigTry] = useState(0);
   const [error, setError] = useState<UiError | null>(null);
-  const [card, setCard] = useState({ number: '', exp_month: '', exp_year: '', cvc: '', card_holder: customer.full_name });
-  const [email, setEmail] = useState(customer.email);
-  const [installments, setInstallments] = useState(1);
-  const [accepted, setAccepted] = useState(false);
   const [paying, setPaying] = useState(false);
   const [result, setResult] = useState<PaymentResult | PaymentStatus | null>(null);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
   const idem = useRef<string>(crypto.randomUUID());
+  // El reloj del sondeo vive en un ref: si se declarara dentro del efecto, cada respuesta
+  // (que cambia `result`) lo reiniciaría y el tope no se cumpliría nunca.
+  const pollStartedAt = useRef<number | null>(null);
+  // `onPaid` navega; sin este candado el efecto lo repetiría en cada render.
+  const paidOnce = useRef(false);
+  const method = order.payment.method;
+  const total = formatMoney(order.totals.grand_total, order.totals.currency_code);
+  const trackHref = `/track/${encodeURIComponent(order.tracking_code ?? order.id)}`;
 
   useEffect(() => {
-    callApi<PaymentConfig>('/api/payments/config').then(setConfig).catch((err) => setError(toUiError(err)));
-  }, []);
+    let alive = true;
+    callApi<PaymentConfig>('/api/payments/config')
+      .then((c) => { if (alive) setConfig(c); })
+      .catch((err) => { if (alive) setError(toUiError(err)); });
+    return () => { alive = false; };
+  }, [configTry]);
 
-  // Sondeo mientras el pago no sea final (3DS, app del banco…). Cada respuesta trae el paso 3DS vigente.
+  // Sondeo mientras el pago no sea final (3DS, app del banco, retorno pendiente). La dependencia
+  // es un booleano estable, no `result`: así el intervalo no se recrea con cada respuesta.
+  const polling = result !== null && !result.final;
   useEffect(() => {
-    if (!result || result.final) return;
+    if (!polling) {
+      pollStartedAt.current = null;
+      return;
+    }
+    pollStartedAt.current ??= Date.now();
     const timer = setInterval(async () => {
+      if (Date.now() - (pollStartedAt.current ?? Date.now()) > POLL_MAX_MS) {
+        clearInterval(timer);
+        setPollTimedOut(true);
+        return;
+      }
       try {
         const status = await callApi<PaymentStatus>(`/api/orders/${order.id}/payment`);
         setResult(status);
-        if (status.final) clearInterval(timer);
+        if (status.final) {
+          clearPendingPayment();
+          clearInterval(timer);
+        }
       } catch (err) {
-        setError(toUiError(err));
+        // 502 wompi_status_failed no es un rechazo: Wompi no respondió. Se sigue sondeando.
+        const ui = toUiError(err);
+        if (ui.code !== 'wompi_status_failed') setError(ui);
       }
-    }, 2500);
+    }, POLL_MS);
     return () => clearInterval(timer);
-  }, [result, order.id]);
+  }, [polling, order.id]);
 
   useEffect(() => {
-    if (result?.status === 'approved') onPaid();
+    if (result?.status === 'approved' && !paidOnce.current) {
+      paidOnce.current = true;
+      onPaid();
+    }
   }, [result?.status, onPaid]);
 
-  async function pay(e: FormEvent) {
-    e.preventDefault();
-    if (!config?.public_key) return;
-    setPaying(true);
-    setError(null);
-    try {
-      const token = await tokenizeCardWithWompi(config.public_key, config.environment, card);
-      const res = await callApi<PaymentResult>(`/api/orders/${order.id}/payments`, {
-        body: {
-          method: 'card',
-          token,
-          installments,
-          customer: { email: email.trim(), full_name: card.card_holder.trim(), phone: customer.phone },
-          redirect_url: `${window.location.origin}/track/${order.tracking_code ?? order.id}`,
-          browser_info: collectBrowserInfo(),
-        },
-        headers: { 'Idempotency-Key': idem.current },
-      });
-      setResult(res);
-      if (res.async_payment_url) window.location.assign(res.async_payment_url);
-    } catch (err) {
-      setError(toUiError(err));
-      idem.current = crypto.randomUUID(); // siguiente intento = nueva key
-    } finally {
-      setPaying(false);
-    }
-  }
+  const pay = useCallback(
+    async (body: CreatePaymentRequest) => {
+      setPaying(true);
+      setError(null);
+      pollStartedAt.current = null;
+      try {
+        const res = await callApi<PaymentResult>(`/api/orders/${order.id}/payments`, {
+          body,
+          headers: { 'Idempotency-Key': idem.current },
+        });
+        setResult(res);
+        if (res.final) clearPendingPayment();
+        else {
+          // Antes de poder salir del sitio (PSE/Bancolombia) o de que el comprador cierre la
+          // pestaña (Nequi/3DS): dejar el puntero a esta orden para no crear otra al volver.
+          savePendingPayment({
+            id: order.id,
+            tracking_code: order.tracking_code ?? null,
+            method,
+            total: order.totals.grand_total,
+            currency: order.totals.currency_code,
+          });
+        }
+        // PSE / Botón Bancolombia: la autorización ocurre en el banco, con navegación completa.
+        if (res.async_payment_url) window.location.assign(res.async_payment_url);
+      } catch (err) {
+        const ui = toUiError(err);
+        // Ya estaba pagada (p.ej. dos pestañas): no es un error para el comprador, se sondea.
+        if (ui.code === 'order_already_paid') setResult({ status: 'pending', final: false } as PaymentStatus);
+        else setError(ui);
+        idem.current = crypto.randomUUID(); // siguiente intento = nueva key
+      } finally {
+        setPaying(false);
+      }
+    },
+    [order.id, order.tracking_code, order.totals.grand_total, order.totals.currency_code, method],
+  );
 
+  const approved = result?.status === 'approved';
   const declined = result && (result.status === 'declined' || result.status === 'error');
-  const threeDs = result && !result.final ? result.three_ds : null;
+  const threeDs = polling ? result!.three_ds : null;
+  const bankUrl = polling ? result!.async_payment_url : null;
+
+  const formProps = {
+    config: config!,
+    contact: customer,
+    paying,
+    submitLabel: `Pagar ${total}`,
+    returnUrl: () => `${window.location.origin}/pago/${order.id}?t=${encodeURIComponent(order.tracking_code ?? '')}`,
+    onPay: pay,
+    onError: (err: unknown) => setError(toUiError(err)),
+  };
 
   return (
     <div className="mx-auto max-w-lg">
-      <SectionTitle title="Pago con tarjeta" subtitle={`Pedido #${order.order_number ?? order.id.slice(0, 8)} · ${formatMoney(order.totals.grand_total, order.totals.currency_code)}`} />
+      <SectionTitle title={TITLE[method] ?? 'Pago del pedido'} subtitle={`Pedido #${order.order_number ?? order.id.slice(0, 8)} · ${total}`} />
 
-      {!config && !error ? (
-        <div className="flex justify-center py-12 text-slate-400"><Spinner className="h-8 w-8" /></div>
-      ) : null}
+      {!config && !error ? <div className="flex justify-center py-12 text-slate-400"><Spinner className="h-8 w-8" /></div> : null}
 
       {config && !config.public_key ? (
         <Notice tone="warning">La tienda no tiene Wompi conectado ({'provider: null'}). Solo acepta contraentrega.</Notice>
       ) : null}
 
-      {declined ? (
+      {approved ? (
+        <Notice tone="success">¡Pago aprobado! Te llevamos a tu pedido…</Notice>
+      ) : declined ? (
         <div className="space-y-4">
           <ErrorBanner title={result.decline?.title ?? 'Pago rechazado'} error={{ message: result.decline?.message ?? 'El banco rechazó la transacción.', code: result.decline?.category }} />
           <p className="text-sm text-slate-600">Un rechazo anula la orden; crea un pedido nuevo para intentar de nuevo.</p>
           <Button onClick={onRestart}>Volver al checkout</Button>
         </div>
-      ) : result && !result.final ? (
+      ) : pollTimedOut ? (
+        // Sondeo agotado con el pago aún pendiente: NO se ofrece reintentar (duplicaría el cobro).
+        <div className="space-y-4">
+          <Notice tone="info">Tu pago sigue en proceso. Apenas tu banco lo confirme actualizamos el pedido.</Notice>
+          <LinkButton href={trackHref}>Ver mi pedido</LinkButton>
+        </div>
+      ) : polling ? (
         <div className="space-y-3">
           <Notice tone="info">
             <span className="inline-flex items-start gap-2">
               <Spinner className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>
-                {threeDs?.interactive
-                  ? 'Tu banco necesita verificar que eres tú. Completa la verificación aquí abajo — no cierres esta página.'
-                  : threeDs
-                    ? 'Autenticando tu pago de forma segura con tu banco. No cierres esta página.'
-                    : 'Esperando confirmación del banco… no cierres esta página.'}
-              </span>
+              <span>{pendingCopy(method, threeDs?.interactive === true, Boolean(threeDs))}</span>
             </span>
           </Notice>
-          {/* 3-D Secure. BROWSER_INFO y FINGERPRINT traen HTML que se ejecuta solo: va oculto pero DEBE
-              montarse o la autenticación no avanza. CHALLENGE es el único que el comprador ve y responde.
-              El API ya decodificó el HTML de Wompi; se monta con `srcDoc` (con `src` no funciona). */}
+          {bankUrl ? (
+            <Button onClick={() => window.location.assign(bankUrl)} className="w-full">Ir al portal de mi banco</Button>
+          ) : null}
+          {/* 3-D Secure. BROWSER_INFO y FINGERPRINT traen HTML que se ejecuta solo: va oculto pero
+              DEBE montarse o la autenticación no avanza. CHALLENGE es el único que el comprador ve
+              y responde. El API ya decodificó el HTML; se monta con `srcDoc` (con `src` no funciona). */}
           {threeDs?.render_html ? (
             threeDs.interactive ? (
               <div className="card overflow-hidden">
@@ -158,42 +212,33 @@ export function PaymentStep({ order, customer, onPaid, onRestart }: Props) {
           ) : null}
         </div>
       ) : config?.public_key ? (
-        <form onSubmit={pay} className="card space-y-4 p-5">
-          {config.environment === 'sandbox' ? <Notice tone="warning">Ambiente sandbox: usa tarjetas de prueba de Wompi.</Notice> : null}
-          <Field label="Número de tarjeta" htmlFor="card-number">
-            <input id="card-number" className="input" inputMode="numeric" autoComplete="cc-number" required value={card.number} onChange={(e) => setCard({ ...card, number: e.target.value })} placeholder="4242 4242 4242 4242" />
-          </Field>
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Mes" htmlFor="card-mm"><input id="card-mm" className="input" required maxLength={2} placeholder="MM" value={card.exp_month} onChange={(e) => setCard({ ...card, exp_month: e.target.value })} /></Field>
-            <Field label="Año" htmlFor="card-yy"><input id="card-yy" className="input" required maxLength={4} placeholder="AA" value={card.exp_year} onChange={(e) => setCard({ ...card, exp_year: e.target.value })} /></Field>
-            <Field label="CVC" htmlFor="card-cvc"><input id="card-cvc" className="input" required maxLength={4} inputMode="numeric" value={card.cvc} onChange={(e) => setCard({ ...card, cvc: e.target.value })} /></Field>
-          </div>
-          <Field label="Titular" htmlFor="card-holder"><input id="card-holder" className="input" required value={card.card_holder} onChange={(e) => setCard({ ...card, card_holder: e.target.value })} /></Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Correo del comprobante" htmlFor="card-email"><input id="card-email" type="email" className="input" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-            <Field label="Cuotas" htmlFor="card-inst"><input id="card-inst" type="number" min={1} max={48} className="input" value={installments} onChange={(e) => setInstallments(Number(e.target.value) || 1)} /></Field>
-          </div>
-          {config.acceptance_tokens ? (
-            <label className="flex items-start gap-2 text-xs text-slate-600">
-              <input type="checkbox" className="mt-0.5" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
-              <span>
-                Acepto el{' '}
-                {config.acceptance_tokens.acceptance_permalink ? <a className="underline" href={config.acceptance_tokens.acceptance_permalink} target="_blank" rel="noreferrer">reglamento</a> : 'reglamento'}{' '}
-                y la{' '}
-                {config.acceptance_tokens.personal_data_auth_permalink ? <a className="underline" href={config.acceptance_tokens.personal_data_auth_permalink} target="_blank" rel="noreferrer">política de datos</a> : 'política de datos'}{' '}
-                de Wompi.
-              </span>
-            </label>
-          ) : null}
+        <div className="space-y-4">
           <ErrorBanner error={error} />
-          <Button type="submit" size="lg" className="w-full" loading={paying} disabled={config.acceptance_tokens ? !accepted : false}>
-            Pagar {formatMoney(order.totals.grand_total, order.totals.currency_code)}
-          </Button>
-          <p className="text-center text-xs text-slate-400">El monto lo fija la tienda (grand_total de la orden); la tarjeta se tokeniza con la llave pública de Wompi. Tu banco puede pedir una verificación (3-D Secure).</p>
-        </form>
+          {method === 'wompi_cards' ? <CardForm {...formProps} /> : null}
+          {method === 'wompi_pse' ? <PseForm {...formProps} /> : null}
+          {method === 'wompi_nequi' ? <NequiForm {...formProps} /> : null}
+          {method === 'wompi_bancolombia_button' ? <BancolombiaForm {...formProps} /> : null}
+          {!TITLE[method] ? <Notice tone="warning">Este starter no implementa el método <span className="font-mono">{method}</span>.</Notice> : null}
+        </div>
       ) : (
-        <ErrorBanner error={error} />
+        // Sin config no hay formulario posible: la orden ya existe, así que hay que dar salidas.
+        <div className="space-y-4">
+          <ErrorBanner error={error} title="No pudimos cargar el pago" />
+          <div className="flex flex-wrap gap-2">
+            {/* Limpiar el error aquí (y no en el efecto) deja volver a ver el spinner. */}
+            <Button onClick={() => { setError(null); setConfigTry((n) => n + 1); }}>Reintentar</Button>
+            <LinkButton href={trackHref} variant="secondary">Ver mi pedido</LinkButton>
+          </div>
+        </div>
       )}
     </div>
   );
+}
+
+function pendingCopy(method: string, challenge: boolean, hasThreeDs: boolean): string {
+  if (challenge) return 'Tu banco necesita verificar que eres tú. Completa la verificación aquí abajo — no cierres esta página.';
+  if (hasThreeDs) return 'Autenticando tu pago de forma segura con tu banco. No cierres esta página.';
+  if (method === 'wompi_nequi') return 'Abre tu app Nequi y aprueba el cobro. Esta página se actualiza sola — no la cierres.';
+  if (method === 'wompi_pse' || method === 'wompi_bancolombia_button') return 'Estamos conectando con tu banco. En unos segundos te llevamos a su portal — no cierres esta página.';
+  return 'Esperando confirmación del banco… no cierres esta página.';
 }
