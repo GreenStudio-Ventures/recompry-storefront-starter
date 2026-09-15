@@ -33,10 +33,13 @@ export function Button({
   loading,
   className,
   children,
+  // `disabled` se desestructura y se aplica DESPUÉS del spread: dentro de `rest` el atributo del
+  // caller pisaba a `loading` y dejaba el botón clicable mientras el cobro estaba en vuelo.
+  disabled,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size; loading?: boolean }) {
   return (
-    <button className={buttonClass(variant, size, className)} disabled={rest.disabled || loading} {...rest}>
+    <button className={buttonClass(variant, size, className)} {...rest} disabled={disabled || loading}>
       {loading ? <Spinner className="h-4 w-4" /> : null}
       {children}
     </button>

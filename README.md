@@ -120,8 +120,20 @@ desde `/v1/openapi.json`). Cuando el paquete esté en npm, instálalo y borra la
 2. `/checkout` crea la orden con `POST /api/orders` (key secreta) enviando un header `Idempotency-Key` generado en el
    browser por intento: reintentar devuelve la misma orden; cambiar el body genera otra key.
 3. Contraentrega → la orden queda confirmada y redirige a `/track/{tracking_code}`.
-4. Tarjeta (Wompi) → `PaymentStep` lee `GET /v1/payments/config` (llave pública + ambiente), tokeniza la tarjeta en el
-   browser y llama `POST /api/orders/{id}/payments`; si el pago queda `pending` (3DS) sondea `GET …/payment`.
+4. Pago online (Wompi) → `PaymentStep` lee `GET /v1/payments/config` (llave pública + ambiente) y pinta el formulario
+   del método con el que se creó la orden (`PaymentForms.tsx`). Todos cobran por `POST /api/orders/{id}/payments` con
+   `Idempotency-Key`:
+   - **Tarjeta**: tokeniza en el browser y manda `browser_info` → el cobro se pide con **3-D Secure v2**. Mientras el
+     pago esté `pending` sondea `GET …/payment` cada 2,5 s y monta `three_ds.render_html` en un iframe: BROWSER_INFO y
+     FINGERPRINT ocultos (se ejecutan solos), CHALLENGE visible para que el comprador responda a su banco.
+   - **PSE**: selector de banco (`GET /api/payments/pse-institutions`), tipo de persona, documento y contacto →
+     llega `async_payment_url` → **navegación completa** al portal del banco.
+   - **Nequi**: celular → el comprador aprueba el push en su app; no hay a dónde redirigir, solo se sondea.
+   - **Botón Bancolombia**: solo cuentas personales (las empresariales van por PSE) → `async_payment_url` → redirect.
+5. El banco devuelve al comprador a **`/pago/{order_id}?t={tracking_code}`** (`PaymentReturn.tsx`), que sondea hasta
+   `final: true`. El retorno no trae nada fiable en la URL: la verdad siempre sale del sondeo, que además reconcilia la
+   venta en el API. Aprobado → vacía el carrito y va a `/track`; rechazado → la orden quedó **anulada**, hay que hacer
+   un pedido nuevo; si se agota el sondeo no se ofrece reintentar (el webhook de Wompi cierra el caso).
 
 ### Sesión del comprador
 
@@ -279,8 +291,8 @@ Lo que **tú debes añadir** en producción:
 
 - **Wompi**: `src/lib/wompi.ts` tokeniza con la llave pública contra `/v1/tokens/cards` de Wompi; verifica el flujo
   contra la documentación oficial o usa Wompi JS/Widget para reducir el alcance PCI. Falta el `session_id` anti-fraude.
-- Solo `cash_on_delivery` y `wompi_cards` en el checkout; PSE, Nequi y Botón Bancolombia (`POST /v1/orders/{id}/payments`
-  con `method: pse | nequi | bancolombia_button` y `async_payment_url`) no tienen UI todavía.
+  El 3DS ya está cableado (`browser_info` + iframe); si un emisor bloquea el reto dentro de un iframe anidado, el
+  fallback es abrirlo en un popup (no implementado).
 - Canje de créditos/puntos en el carrito (`credits_to_redeem_cents`, `loyalty_points_to_redeem`) no está expuesto en la UI.
 - Direcciones guardadas no se usan aún en el checkout (solo texto libre geocodificado).
 - Pedidos programados (`scheduled_for`) no tienen selector.

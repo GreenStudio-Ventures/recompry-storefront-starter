@@ -14,3 +14,12 @@ export function paymentPhone(phone: string | null | undefined): string | undefin
   const trimmed = (phone ?? '').trim();
   return isCheckoutPhone(trimmed) ? trimmed : undefined;
 }
+
+/**
+ * Celular colombiano en formato local (10 dígitos) a partir de lo que el comprador haya escrito
+ * (`+57 300 111 2233`, `57 300…`, con espacios o guiones). Es lo que exigen Nequi (`^3\d{9}$`) y
+ * la base sobre la que PSE arma el `57XXXXXXXXXX` que normaliza el API.
+ */
+export function localMobile(phone: string | null | undefined): string {
+  return (phone ?? '').replace(/\D/g, '').slice(-10);
+}

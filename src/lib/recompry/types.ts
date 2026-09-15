@@ -31,6 +31,7 @@ export type PaymentConfig = S['PaymentConfig'];
 export type CreatePaymentRequest = S['CreatePaymentRequest'];
 export type PaymentResult = S['PaymentResult'];
 export type PaymentStatus = S['PaymentStatus'];
+export type PseInstitution = S['PseInstitution'];
 export type Plan = S['Plan'];
 export type Subscription = S['Subscription'];
 export type LoyaltyBalance = S['LoyaltyBalance'];

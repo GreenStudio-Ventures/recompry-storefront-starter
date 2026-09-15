@@ -427,6 +427,8 @@ export interface paths {
                     updated_since?: string;
                     /** @description Sucursal (`GET /v1/locations`). Con ella el precio, la presentación y la disponibilidad son los de ESA sucursal, y los productos que la sucursal no vende se ocultan de la lista. Sin ella: precio base del catálogo y stock agregado de toda la organización. */
                     location_id?: string;
+                    /** @description Canal de venta (`GET /v1/channels` → `code`). Con él, los precios devueltos son los de ese canal (precio específico o recargo del canal sobre el precio base). Sin él: precios del canal Website. */
+                    channel?: string;
                     /** @description Orden: `-created_at` (default, más nuevos primero), `created_at`, `price`, `-price`, `name`. El prefijo `-` es descendente. Desempate siempre por `id`. */
                     sort?: "created_at" | "-created_at" | "price" | "-price" | "name";
                     /** @description Relaciones a incrustar, separadas por coma: `variants` (presentaciones con precio y stock), `modifiers` (grupos de modificadores/extras), `prices` (overrides de precio por sucursal), `subscription_plans` (solo en el detalle). Sin `include` el payload es liviano. */
@@ -527,6 +529,8 @@ export interface paths {
                 query?: {
                     /** @description Sucursal (`GET /v1/locations`). Con ella el precio, la presentación y la disponibilidad son los de ESA sucursal, y los productos que la sucursal no vende se ocultan de la lista. Sin ella: precio base del catálogo y stock agregado de toda la organización. */
                     location_id?: string;
+                    /** @description Canal de venta (`GET /v1/channels` → `code`). Con él, los precios devueltos son los de ese canal (precio específico o recargo del canal sobre el precio base). Sin él: precios del canal Website. */
+                    channel?: string;
                     /** @description Relaciones a incrustar, separadas por coma: `variants` (presentaciones con precio y stock), `modifiers` (grupos de modificadores/extras), `prices` (overrides de precio por sucursal), `subscription_plans` (solo en el detalle). Sin `include` el payload es liviano. */
                     include?: string;
                 };
@@ -577,6 +581,81 @@ export interface paths {
                 };
                 /** @description El recurso no existe en esta organización. */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Rate limit excedido. Revisa los headers RateLimit-* y Retry-After. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Error interno. Reporta el request_id. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Listar canales de venta
+         * @description Canales de venta activos de la tienda (POS, Website, apps de domicilio, marketplaces). Usa el `code` como `?channel=` en catálogo (`GET /v1/products`), búsqueda, carrito y órdenes para obtener/cobrar los precios de ese canal (precio específico por producto o recargo del canal). La administración de canales (crear/editar/recargos) es exclusiva del dashboard. Scope `store:read` (incluido en publishable keys).
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Canales activos, ordenados. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChannelListResponse"];
+                    };
+                };
+                /** @description API key ausente, inválida, revocada o expirada. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description La key no tiene el scope requerido, o es de test en un endpoint de escritura. */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1484,7 +1563,7 @@ export interface paths {
         put?: never;
         /**
          * Crear o enlazar la ficha del comprador
-         * @description Resuelve el Customer del comprador autenticado en esta tienda: lo enlaza a una ficha existente (por identidad, o por el email/teléfono VERIFICADOS de su cuenta) o lo crea. Es idempotente por naturaleza (no necesita `Idempotency-Key`): llámalo tras el login. Los datos del body solo rellenan campos vacíos de la ficha; nunca sobrescriben lo que ya había. `phone`/`email` del body se ignoran si no coinciden con el dato verificado de la cuenta (nunca sirven para emparejar fichas). Requiere `X-Buyer-Token` (access_token del comprador emitido por el proyecto de identidad que expone `GET /v1/store` → `buyer_auth`); sin él responde 401 `buyer_token_required`. Scope `customers:write` (solo keys secretas).
+         * @description Resuelve el Customer del comprador autenticado en esta tienda: lo enlaza a una ficha existente (por identidad, o por el email/teléfono VERIFICADOS de su cuenta) o lo crea. Es idempotente por naturaleza (no necesita `Idempotency-Key`): llámalo tras el login. Los datos del body solo rellenan campos vacíos de la ficha; nunca sobrescriben lo que ya había. `phone`/`email` del body se ignoran si no coinciden con el dato verificado de la cuenta (nunca sirven para emparejar fichas). Casa de cambio: `kyc` (nacionalidad, tipo y número de documento, ocupación, vencimiento) se ACEPTA y rellena los campos KYC vacíos de la ficha, pero la respuesta NUNCA lo devuelve (la ficha pública no expone KYC; lo revisa el negocio en el dashboard). En tiendas de casa de cambio, enviar `kyc` sin `nationality` responde 422 `nationality_required`. Requiere `X-Buyer-Token` (access_token del comprador emitido por el proyecto de identidad que expone `GET /v1/store` → `buyer_auth`); sin él responde 401 `buyer_token_required`. Scope `customers:write` (solo keys secretas).
          */
         post: {
             parameters: {
@@ -1499,7 +1578,7 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description Ficha del comprador (existente o recién creada). */
+                /** @description Ficha del comprador (existente o recién creada). Sin campos KYC. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -1528,6 +1607,15 @@ export interface paths {
                 };
                 /** @description La key no tiene el scope requerido, o es de test en un endpoint de escritura. */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `nationality_required`: la tienda es casa de cambio y `kyc` llegó sin `nationality`. */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2301,6 +2389,260 @@ export interface paths {
                 };
                 /** @description Error interno. Reporta el request_id. */
                 500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description No se pudo verificar la identidad del comprador (`buyer_auth_unavailable`). Reintenta con backoff. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/customers/{customer_id}/kyc-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Firmar la subida de un documento KYC
+         * @description Paso 1 de 2 para adjuntar un documento de identidad a la ficha (casa de cambio). Devuelve una URL firmada del storage privado de la tienda: sube el binario ahí (`PUT` con el `Content-Type` declarado, o `uploadToSignedUrl` de supabase-js con `token`) y luego llama a `…/kyc-documents/confirm` con el `path`. Solo JPEG, PNG, WebP o PDF; máximo 10 MB (se verifica al confirmar) y 20 documentos por ficha (422 `too_many_documents`). El destino lo decide el servidor (`customers/{org}/{customer}/api/…`); el nombre se sanea. El binario nunca se devuelve por el API. `X-Buyer-Token` es OPCIONAL: con él, el `customer_id` debe ser la ficha de ese comprador (si no, 404); sin él, la key secreta (server-side) puede operar cualquier ficha de la tienda. Scope `customers:write` (solo keys secretas live).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Id del Customer (el que devuelve `POST /v1/customers/ensure` o `GET /v1/customers/me`). */
+                    customer_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SignKycDocumentBody"];
+                };
+            };
+            responses: {
+                /** @description Subida firmada (válida 2 h). */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SignedKycUploadResponse"];
+                    };
+                };
+                /** @description La solicitud no pasa la validación del esquema. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description API key inválida, o falta/expiró el `X-Buyer-Token` (`buyer_token_required` / `invalid_buyer_token`). */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description La key no tiene el scope requerido, o es de test en un endpoint de escritura. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description El recurso no existe en esta organización. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `too_many_documents` (la ficha ya tiene 20) o `invalid_content_type`. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Rate limit excedido. Revisa los headers RateLimit-* y Retry-After. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Error interno. Reporta el request_id. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `signed_upload_failed`: el storage no firmó la subida; reintenta. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description No se pudo verificar la identidad del comprador (`buyer_auth_unavailable`). Reintenta con backoff. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/customers/{customer_id}/kyc-documents/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar un documento KYC subido
+         * @description Paso 2 de 2: tras subir el binario a la URL firmada, confirma el `path` para adjuntarlo a la ficha. El servidor verifica que el path pertenezca a una subida firmada de ESTE cliente (otro path responde 400 `invalid_path`), que el archivo exista (422 `object_not_found`) y que no supere 10 MB (si excede se borra y responde 422 `file_too_large`). Idempotente por `path`: confirmar dos veces no duplica el documento. El operador lo ve en la ficha del cliente en el dashboard como "Subido por API". `X-Buyer-Token` es OPCIONAL: con él, el `customer_id` debe ser la ficha de ese comprador (si no, 404); sin él, la key secreta (server-side) puede operar cualquier ficha de la tienda. Scope `customers:write` (solo keys secretas live).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Id del Customer (el que devuelve `POST /v1/customers/ensure` o `GET /v1/customers/me`). */
+                    customer_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConfirmKycDocumentBody"];
+                };
+            };
+            responses: {
+                /** @description Documento adjuntado a la ficha. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KycDocumentResponse"];
+                    };
+                };
+                /** @description La solicitud no pasa la validación del esquema. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description API key inválida, o falta/expiró el `X-Buyer-Token` (`buyer_token_required` / `invalid_buyer_token`). */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description La key no tiene el scope requerido, o es de test en un endpoint de escritura. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description El recurso no existe en esta organización. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `object_not_found`, `file_too_large` o `too_many_documents`. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Rate limit excedido. Revisa los headers RateLimit-* y Retry-After. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Error interno. Reporta el request_id. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `storage_unavailable`: no se pudo verificar la subida; reintenta. */
+                502: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -3107,7 +3449,7 @@ export interface paths {
         };
         /**
          * Seguimiento público de un pedido
-         * @description Estado de un pedido por su `tracking_code` (el que devuelve `POST /v1/orders`). Sin datos personales ni montos: apto para publishable keys y para páginas de seguimiento compartibles. `stage` es la etapa simplificada para la línea de tiempo del comprador. Scope `store:read` (incluido en publishable keys).
+         * @description Estado de un pedido por su `tracking_code` (el que devuelve `POST /v1/orders`). Sin datos personales ni montos: apto para publishable keys y para páginas de seguimiento compartibles. `stage` es la etapa simplificada para la línea de tiempo del comprador. En órdenes de casa de cambio viajan además `fx_stage` y `rate_locked_until` (estado operativo, sin tasas ni montos); en el resto van en null. Scope `store:read` (incluido en publishable keys).
          */
         get: {
             parameters: {
@@ -5250,7 +5592,7 @@ export interface paths {
         put?: never;
         /**
          * Inscribirse en la lista de espera de un producto
-         * @description Registra al comprador (o a un invitado por `email`) en la lista de espera de un producto en pre-lanzamiento (`is_waitlist_enabled` en `GET /v1/products`). Con `X-Buyer-Token` la inscripción queda ligada a su cuenta y se ignora `email`; además adopta una inscripción previa hecha como invitado con el email verificado de su cuenta. Sin token, `email` es obligatorio (400 `email_required`). Idempotente por naturaleza (no necesita `Idempotency-Key`): la misma persona sobre el mismo producto responde 200 con la inscripción existente (y la reactiva si se había retirado); una inscripción nueva responde 201. Producto inexistente o de otra tienda => 404 `product_not_found`; sin lista de espera habilitada => 422 `waitlist_not_enabled`. Con una key de test no se escribe nada (403 `test_token_readonly`). Excepción al 200 idempotente: si el `email` ya figura inscrito a este producto y esa inscripción no puede devolverse a quien llama, responde 409 `waitlist_already_joined` sin datos de la inscripción (mensaje neutro, no indica su origen). Si la inscripción cambió mientras se procesaba (dos requests simultáneos de la misma persona) responde 409 `waitlist_conflict`: reintenta y obtendrás el 200. Un `X-Buyer-Token` presente pero inválido responde 401 (nunca degrada a invitado). Scope `catalog:read` (incluido en publishable keys).
+         * @description Registra al comprador (o a un invitado por `email` o `phone`) en la lista de espera de un producto en pre-lanzamiento (`is_waitlist_enabled` en `GET /v1/products`). Con `X-Buyer-Token` la inscripción queda ligada a su cuenta y se ignoran `email`/`phone`/`name`; además adopta una inscripción previa hecha como invitado con el email o el teléfono verificados de su cuenta. Sin token hace falta `email` o `phone` (400 `email_required`). Inscribirse por `phone` CREA O ENLAZA además una ficha en la agenda de la tienda (`customers`, `origin: waitlist`, emparejada por teléfono con la que ya exista): por eso exige una key SECRETA con scope `customers:write` (403 `insufficient_scope` con una publishable) y `name` se usa solo al crearla. Un teléfono sin indicativo o fuera de E.164 responde 400 `invalid_phone`. Idempotente por naturaleza (no necesita `Idempotency-Key`): la misma persona sobre el mismo producto responde 200 con la inscripción existente (y la reactiva si se había retirado); una inscripción nueva responde 201. Producto inexistente o de otra tienda => 404 `product_not_found`; sin lista de espera habilitada => 422 `waitlist_not_enabled`. Con una key de test no se escribe nada (403 `test_token_readonly`). Excepción al 200 idempotente: si el `email` ya figura inscrito a este producto y esa inscripción no puede devolverse a quien llama, responde 409 `waitlist_already_joined` sin datos de la inscripción (mensaje neutro, no indica su origen). Si la inscripción cambió mientras se procesaba (dos requests simultáneos de la misma persona) responde 409 `waitlist_conflict`: reintenta y obtendrás el 200. Un `X-Buyer-Token` presente pero inválido responde 401 (nunca degrada a invitado). Scope `catalog:read` (incluido en publishable keys).
          */
         post: {
             parameters: {
@@ -5319,7 +5661,7 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
-                /** @description `waitlist_already_joined` (el email ya está inscrito y la inscripción no es de quien llama) o `waitlist_conflict` (cambió mientras se procesaba: reintenta). */
+                /** @description `waitlist_already_joined` (ese email o teléfono ya está inscrito y la inscripción no es de quien llama) o `waitlist_conflict` (cambió mientras se procesaba: reintenta). */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -5579,10 +5921,12 @@ export interface paths {
          *     `X-Recompry-Signature` (firma, arriba), `X-Recompry-Event` (nombre del evento, igual a `envelope.event`: sirve para enrutar sin parsear el body), `X-Recompry-Event-Id` (igual a `envelope.event_id`: dedupe sin parsear), `Content-Type: application/json` y `User-Agent: Recompry-Webhooks/1.0`. Verifica siempre la firma sobre el body; los otros headers son comodidad, no autenticación.
          *
          *     ### Eventos y forma de `data`
-         *     Eventos suscribibles: `order.created`, `order.paid`, `order.stage_changed`, `subscription.created`, `subscription.canceled`, `subscription.cycle_dispatched`, `subscription.cycle_paid`, `ping`. Los valores de estado y etapa van tal como los guarda la plataforma (MAYÚSCULAS, p. ej. `CANCELED`, `NEW`). `data` puede traer campos adicionales en el futuro: ignora los que no conozcas.
+         *     Eventos suscribibles: `order.created`, `order.paid`, `order.stage_changed`, `order.fx_stage_changed`, `subscription.created`, `subscription.canceled`, `subscription.cycle_dispatched`, `subscription.cycle_paid`, `fx.quote_expiring`, `ping`. Los valores de estado y etapa van tal como los guarda la plataforma (MAYÚSCULAS, p. ej. `CANCELED`, `NEW`). `data` puede traer campos adicionales en el futuro: ignora los que no conozcas.
          *
-         *     - `order.created` y `order.paid`: `{ sale_id, order_number, tracking_code, status, fulfillment_status, order_type, total, currency, customer: { name, phone } }`. `order.created` se emite al crear el pedido (checkout web, agente o `POST /v1/orders`); `order.paid` cuando el pago queda aprobado.
+         *     - `order.created` y `order.paid`: `{ sale_id, order_number, tracking_code, status, fulfillment_status, order_type, total, currency, customer: { name, phone } }`. `order.created` se emite al crear el pedido (checkout web, agente, `POST /v1/orders` o `POST /v1/fx/orders`); `order.paid` cuando el pago queda aprobado.
          *     - `order.stage_changed`: los mismos campos más `previous_fulfillment_status`. `fulfillment_status` es la etapa nueva y `previous_fulfillment_status` la anterior. La CANCELACIÓN llega por este evento con `fulfillment_status = "CANCELED"` y `status = "CANCELED"` (en los demás cambios de etapa `status` es `null`). No existe un campo `stage_to`.
+         *     - `order.fx_stage_changed` (vertical casa de cambio): `{ order_id, order_number, fx_stage_from, fx_stage_to, status, rate_locked_until, reason, idempotency_key }`. Se emite en CADA transición de `fx_stage` de una orden FX (la mueve siempre un operador humano en el dashboard: confirmación de pago, alistamiento, entrega, anulación…). `order_number` (string) es `null` mientras la orden sigue en borrador; `fx_stage_from` es `null` solo en la primera asignación de etapa; `status` es el estado general de la orden (`DRAFT`, `COMPLETED`, `VOIDED`…), no la etapa FX; `reason` solo trae valor cuando la transición es una cancelación/anulación con motivo; `idempotency_key` (`fx_stage:{order_id}:{from}:{to}`) es estable por transición: dedupe con él además de `event_id`.
+         *     - `fx.quote_expiring` (vertical casa de cambio): `{ order_id, rate_locked_until, fx_stage, idempotency_key }`. Aviso de que el lock de tasa de una orden aún en `QUOTED` vence en menos de 2 horas (barrido horario); se emite UNA sola vez por orden. Úsalo para recordarle al cliente completar su pago antes de que la cotización expire.
          *     - `subscription.created`: `{ subscription_id, customer_id, plan_id, plan_type, frequency_option_id, total_amount, currency_code, first_cycle_id, next_billing_at }`.
          *     - `subscription.canceled`: `{ subscription_id, customer_id, plan_id, previous_status, canceled_at, reason }`.
          *     - `subscription.cycle_dispatched`: `{ subscription_id, cycle_id, sequence_number, sale_id, customer_id, location_id, total, currency }` (el ciclo generó su pedido de despacho).
@@ -5976,10 +6320,12 @@ export interface paths {
          *     `X-Recompry-Signature` (firma, arriba), `X-Recompry-Event` (nombre del evento, igual a `envelope.event`: sirve para enrutar sin parsear el body), `X-Recompry-Event-Id` (igual a `envelope.event_id`: dedupe sin parsear), `Content-Type: application/json` y `User-Agent: Recompry-Webhooks/1.0`. Verifica siempre la firma sobre el body; los otros headers son comodidad, no autenticación.
          *
          *     ### Eventos y forma de `data`
-         *     Eventos suscribibles: `order.created`, `order.paid`, `order.stage_changed`, `subscription.created`, `subscription.canceled`, `subscription.cycle_dispatched`, `subscription.cycle_paid`, `ping`. Los valores de estado y etapa van tal como los guarda la plataforma (MAYÚSCULAS, p. ej. `CANCELED`, `NEW`). `data` puede traer campos adicionales en el futuro: ignora los que no conozcas.
+         *     Eventos suscribibles: `order.created`, `order.paid`, `order.stage_changed`, `order.fx_stage_changed`, `subscription.created`, `subscription.canceled`, `subscription.cycle_dispatched`, `subscription.cycle_paid`, `fx.quote_expiring`, `ping`. Los valores de estado y etapa van tal como los guarda la plataforma (MAYÚSCULAS, p. ej. `CANCELED`, `NEW`). `data` puede traer campos adicionales en el futuro: ignora los que no conozcas.
          *
-         *     - `order.created` y `order.paid`: `{ sale_id, order_number, tracking_code, status, fulfillment_status, order_type, total, currency, customer: { name, phone } }`. `order.created` se emite al crear el pedido (checkout web, agente o `POST /v1/orders`); `order.paid` cuando el pago queda aprobado.
+         *     - `order.created` y `order.paid`: `{ sale_id, order_number, tracking_code, status, fulfillment_status, order_type, total, currency, customer: { name, phone } }`. `order.created` se emite al crear el pedido (checkout web, agente, `POST /v1/orders` o `POST /v1/fx/orders`); `order.paid` cuando el pago queda aprobado.
          *     - `order.stage_changed`: los mismos campos más `previous_fulfillment_status`. `fulfillment_status` es la etapa nueva y `previous_fulfillment_status` la anterior. La CANCELACIÓN llega por este evento con `fulfillment_status = "CANCELED"` y `status = "CANCELED"` (en los demás cambios de etapa `status` es `null`). No existe un campo `stage_to`.
+         *     - `order.fx_stage_changed` (vertical casa de cambio): `{ order_id, order_number, fx_stage_from, fx_stage_to, status, rate_locked_until, reason, idempotency_key }`. Se emite en CADA transición de `fx_stage` de una orden FX (la mueve siempre un operador humano en el dashboard: confirmación de pago, alistamiento, entrega, anulación…). `order_number` (string) es `null` mientras la orden sigue en borrador; `fx_stage_from` es `null` solo en la primera asignación de etapa; `status` es el estado general de la orden (`DRAFT`, `COMPLETED`, `VOIDED`…), no la etapa FX; `reason` solo trae valor cuando la transición es una cancelación/anulación con motivo; `idempotency_key` (`fx_stage:{order_id}:{from}:{to}`) es estable por transición: dedupe con él además de `event_id`.
+         *     - `fx.quote_expiring` (vertical casa de cambio): `{ order_id, rate_locked_until, fx_stage, idempotency_key }`. Aviso de que el lock de tasa de una orden aún en `QUOTED` vence en menos de 2 horas (barrido horario); se emite UNA sola vez por orden. Úsalo para recordarle al cliente completar su pago antes de que la cotización expire.
          *     - `subscription.created`: `{ subscription_id, customer_id, plan_id, plan_type, frequency_option_id, total_amount, currency_code, first_cycle_id, next_billing_at }`.
          *     - `subscription.canceled`: `{ subscription_id, customer_id, plan_id, previous_status, canceled_at, reason }`.
          *     - `subscription.cycle_dispatched`: `{ subscription_id, cycle_id, sequence_number, sale_id, customer_id, location_id, total, currency }` (el ciclo generó su pedido de despacho).
@@ -6155,6 +6501,332 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fx/rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tasas de cambio publicadas
+         * @description Tasas vigentes por divisa para una sucursal (las tasas pueden variar por sede; sin `location_id` se usa la sucursal principal activa y `location_id` de la respuesta dice cuál). Son los precios que el negocio PUBLICA (nunca sus márgenes): `buy_rate` es lo que paga el cliente por unidad cuando COMPRA la divisa, `sell_rate` lo que recibe cuando la VENDE; `reference_rate` es el mid informativo. Incluye la config del canal (`fee`, `rate_lock_hours`, `quote_ttl_minutes`, `payment_methods`, `shipping_methods`) que necesitas para cotizar y ordenar. Cacheable 60 s. Solo para organizaciones del vertical casa de cambio: en cualquier otra responde 404 `fx_not_enabled`. Scope `catalog:read` (incluido en publishable keys).
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Sucursal cuyas tasas se consultan (las tasas pueden variar por sede). Si se omite se usa la sucursal principal activa del negocio; la respuesta indica en `location_id` cuál se resolvió. */
+                    location_id?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Tasas de la sucursal. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FxRatesResponse"];
+                    };
+                };
+                /** @description La solicitud no pasa la validación del esquema. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description API key ausente, inválida, revocada o expirada. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description La key no tiene el scope requerido, o es de test en un endpoint de escritura. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `fx_not_enabled` (la organización no es casa de cambio) o `location_not_found`. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Rate limit excedido. Revisa los headers RateLimit-* y Retry-After. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Error interno. Reporta el request_id. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fx/quotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cotizar un carrito de divisas
+         * @description Cotiza uno o más renglones `{ code | product_id, side, amount }` contra las tasas publicadas de la sucursal y devuelve totales + un `quote_token` firmado que FIJA esas tasas durante `quote_ttl_minutes` (15 por defecto). Todo se calcula server-side: `amount` se cuantiza a la precisión del producto (unidades ENTERAS: un decimal responde 422 `amount_not_supported`); `net` de cada línea = `amount × rate` a unidad entera (`buy` hacia abajo, `sell` hacia arriba); el fee de servicio es por orden y gratis desde `fee_free_threshold_usd` (con signo: negativo en venta pura); el envío sale de `shipping_method_id` (default `pickup`, sin costo). **Perspectiva del CLIENTE**: `side: "buy"` = el cliente compra la divisa (paga `buy_rate` por unidad); `side: "sell"` = el cliente vende la divisa (recibe `sell_rate` por unidad). Errores 422: `amount_not_supported`, `line_below_minimum` (neto 0), `conflicting_sides` (misma divisa en compra y venta), `currency_not_available`, `too_many_items`, `shipping_method_unavailable`. Solo para organizaciones del vertical casa de cambio: en cualquier otra responde 404 `fx_not_enabled`. Scope `catalog:read` (publishable keys permitidas: el token no otorga nada por sí solo, crear la orden exige key secreta).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FxQuoteRequest"];
+                };
+            };
+            responses: {
+                /** @description Cotización firmada. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FxQuoteResponse"];
+                    };
+                };
+                /** @description La solicitud no pasa la validación del esquema. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description API key ausente, inválida, revocada o expirada. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description La key no tiene el scope requerido, o es de test en un endpoint de escritura. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `fx_not_enabled` o `location_not_found`. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `amount_not_supported`, `line_below_minimum`, `conflicting_sides`, `currency_not_available`, `too_many_items`, `shipping_method_unavailable`. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Rate limit excedido. Revisa los headers RateLimit-* y Retry-After. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Error interno. Reporta el request_id. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fx/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crear una orden FX
+         * @description Crea la orden de cambio a partir de un `quote_token` vigente (única fuente de tasas y totales: no se aceptan montos sueltos) más los datos del cliente con KYC completo, la modalidad de entrega y el método de pago (manual/diferido). Header `Idempotency-Key` OBLIGATORIO: repetir con la misma key devuelve la misma orden con 200 (aunque la cotización ya haya vencido); la misma key con otro body responde 409. Header opcional `X-Buyer-Token`: liga la orden a la cuenta del comprador; es OBLIGATORIO cuando el acumulado del día (bruto de esta orden + lo operado hoy por el cliente) supera el umbral AML de la tienda (`kyc_threshold_usd` de la cotización, visible solo con secret key; si no, 401 `auth_required`). La orden nace `status=DRAFT`, `fx_stage=QUOTED` con `rate_locked_until = ahora + rate_lock_hours`; el operador la liquida (commit) o la anula desde el dashboard — nunca este API. Emite el webhook `order.created`; las transiciones llegan por `order.fx_stage_changed`. **Perspectiva del CLIENTE**: `side: "buy"` = el cliente compra la divisa (paga `buy_rate` por unidad); `side: "sell"` = el cliente vende la divisa (recibe `sell_rate` por unidad). Errores: 400 `invalid_quote_token` (firma inválida/alterado), 422 `quote_expired`, `kyc_incomplete` (`details.missing`), `id_expiring_soon`, `daily_limit_exceeded`, `payment_method_unavailable`, `delivery_mismatch`, `address_required`, `line_below_minimum`, `invalid_amount`, `too_many_items`; 401 `auth_required`; 404 `quote_not_found` (token de otra organización), `location_not_found`, `currency_not_found`. Solo para organizaciones del vertical casa de cambio: en cualquier otra responde 404 `fx_not_enabled`. Scope `orders:write` (solo keys secretas live).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateFxOrderRequest"];
+                };
+            };
+            responses: {
+                /** @description Replay idempotente: la orden ya existía para esta `Idempotency-Key` (mismo body). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderResponse"];
+                    };
+                };
+                /** @description Orden FX creada (mismo shape que `GET /v1/orders/{id}`). */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderResponse"];
+                    };
+                };
+                /** @description La solicitud no pasa la validación del esquema. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description API key inválida, `X-Buyer-Token` inválido o `auth_required` (acumulado del día sobre el umbral sin comprador autenticado). */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description La key no tiene el scope requerido, o es de test en un endpoint de escritura. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description El recurso no existe en esta organización. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `idempotency_key_conflict` (misma key, body distinto) o `idempotency_key_in_progress`. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description `quote_expired`, `kyc_incomplete`, `id_expiring_soon`, `daily_limit_exceeded`, `payment_method_unavailable`, `delivery_mismatch`, `address_required`, `line_below_minimum`, `invalid_amount`, `too_many_items`. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Rate limit excedido. Revisa los headers RateLimit-* y Retry-After. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Error interno. Reporta el request_id. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -6501,8 +7173,8 @@ export interface components {
              */
             availability: string;
             /**
-             * @description x-extensible-enum: `product`, `service`, …
-             * @example product
+             * @description x-extensible-enum: `physical`, `prepared_food`, `service`, `digital`, `medication`, `foreign_exchange_asset`, `other`.
+             * @example physical
              */
             item_type: string | null;
             is_trending: boolean;
@@ -6697,6 +7369,27 @@ export interface components {
         ProductResponse: {
             data: components["schemas"]["Product"];
         };
+        ChannelListResponse: {
+            data: components["schemas"]["Channel"][];
+        };
+        Channel: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description Código estable del canal (slug). Úsalo en `?channel=` de catálogo/carrito/órdenes.
+             * @example rappi
+             */
+            code: string;
+            /** @example Rappi */
+            name: string;
+            /**
+             * @description Tipo de canal (x-extensible-enum): `pos`, `website`, `delivery_app`, `marketplace`, `social`, `custom`.
+             * @example delivery_app
+             */
+            kind: string;
+            is_active: boolean;
+            sort_order: number;
+        };
         ProductAvailabilityResponse: {
             data: components["schemas"]["ProductAvailability"];
         };
@@ -6829,8 +7522,8 @@ export interface components {
             /** @description Atajo: true solo cuando `availability` es `in_stock`. */
             is_available: boolean;
             /**
-             * @description Tipo de ítem (`product`, `service`, …). x-extensible-enum.
-             * @example product
+             * @description Tipo de ítem. x-extensible-enum: `physical`, `prepared_food`, `service`, `digital`, `medication`, `foreign_exchange_asset`, `other`.
+             * @example physical
              */
             item_type: string | null;
             /** @description Categorías a las que pertenece (ids de `GET /v1/store` → `categories`). */
@@ -7164,7 +7857,7 @@ export interface components {
              */
             wallet_balance_cents: number;
         };
-        /** @description Datos opcionales para completar la ficha. Solo rellenan campos VACÍOS: nunca pisan lo que el comprador ya tenía (para eso está `PATCH /v1/customers/me`). `phone`/`email` se aplican únicamente si coinciden con el dato verificado (OTP) de la cuenta del comprador; en otro caso se ignoran y jamás se usan para emparejar fichas. */
+        /** @description Datos opcionales para completar la ficha. Solo rellenan campos VACÍOS: nunca pisan lo que el comprador ya tenía (para eso está `PATCH /v1/customers/me`). `phone`/`email` se aplican únicamente si coinciden con el dato verificado (OTP) de la cuenta del comprador; en otro caso se ignoran y jamás se usan para emparejar fichas. `kyc` (casa de cambio) se acepta pero jamás se devuelve. */
         EnsureCustomerBody: {
             /** @example Ana Pérez */
             name?: string;
@@ -7175,6 +7868,30 @@ export interface components {
              * @example ana@ejemplo.com
              */
             email?: string;
+            kyc?: components["schemas"]["CustomerKycInput"];
+        };
+        /** @description Datos KYC declarados por el comprador (casa de cambio). Solo rellenan campos VACÍOS de la ficha; el negocio los revisa en el dashboard. Nunca se devuelven por el API. */
+        CustomerKycInput: {
+            /**
+             * @description Obligatoria en tiendas de casa de cambio cuando se envía `kyc` (422 `nationality_required`).
+             * @example LATAM
+             * @enum {string}
+             */
+            nationality?: "US" | "LATAM" | "EU" | "OTHER";
+            /**
+             * @description Código del tipo de documento según el país de la tienda (`CC`, `PA`, `US_DRIVER_LICENSE`, `TAX_ID`, …).
+             * @example PASSPORT
+             */
+            id_type?: string;
+            /** @example AB123456 */
+            id_number?: string;
+            /** @example Ingeniera */
+            occupation?: string;
+            /**
+             * @description YYYY-MM-DD.
+             * @example 2030-05-01
+             */
+            document_expiration_date?: string;
         };
         /** @description Campos editables por el comprador. Los demás datos de la ficha solo los cambia el negocio. `phone`/`email` admiten solo el valor verificado (OTP) en la cuenta del comprador o `null`; otro valor responde 422. */
         UpdateCustomerBody: {
@@ -7318,6 +8035,75 @@ export interface components {
         LinkGuestOrders: {
             /** @description Pedidos adoptados en esta llamada (0 si no había o el comprador no tiene teléfono verificado). */
             linked: number;
+        };
+        SignedKycUploadResponse: {
+            data: components["schemas"]["SignedKycUpload"];
+        };
+        SignedKycUpload: {
+            /**
+             * @description Pásalo tal cual a `…/kyc-documents/confirm` cuando termine la subida.
+             * @example customers/{org_id}/{customer_id}/api/1756050000000-pasaporte.jpg
+             */
+            path: string;
+            /** @description URL firmada: `PUT` el binario aquí con el header `Content-Type` declarado (o usa `uploadToSignedUrl` de supabase-js con `token`). */
+            upload_url: string;
+            /** @description Token de la subida firmada (para `supabase.storage.from(bucket).uploadToSignedUrl(path, token, file)`). */
+            token: string;
+            /**
+             * Format: date-time
+             * @description La URL deja de aceptar subidas a esta hora (2 h).
+             * @example 2026-08-24T14:30:00Z
+             */
+            expires_at: string;
+            /**
+             * @description Tamaño máximo aceptado en `confirm`; un archivo mayor se borra y responde 422 `file_too_large`.
+             * @example 10485760
+             */
+            max_bytes: number;
+            /** @example image/jpeg */
+            content_type: string;
+        };
+        SignKycDocumentBody: {
+            /**
+             * @description Nombre original; el servidor lo sanea y le antepone un timestamp.
+             * @example pasaporte.jpg
+             */
+            file_name: string;
+            /**
+             * @example image/jpeg
+             * @enum {string}
+             */
+            content_type: "image/jpeg" | "image/png" | "image/webp" | "application/pdf";
+        };
+        KycDocumentResponse: {
+            data: components["schemas"]["KycDocument"];
+        };
+        /** @description Documento adjuntado a la ficha. El binario no se devuelve por el API: lo revisa el negocio en el dashboard. */
+        KycDocument: {
+            path: string;
+            label: string | null;
+            /**
+             * Format: date-time
+             * @description RFC 3339 en UTC.
+             * @example 2026-08-24T14:30:00Z
+             */
+            uploaded_at: string;
+            /**
+             * @description x-extensible-enum: `api`.
+             * @example api
+             */
+            source: string;
+            /** @description Documentos KYC que tiene la ficha tras esta confirmación (máximo 20). */
+            documents_count: number;
+        };
+        ConfirmKycDocumentBody: {
+            /** @example customers/{org_id}/{customer_id}/api/1756050000000-pasaporte.jpg */
+            path: string;
+            /**
+             * @description Etiqueta visible para el operador (opcional).
+             * @example Pasaporte
+             */
+            label?: string | null;
         };
         NotificationSettingsResponse: {
             data: components["schemas"]["NotificationSettings"];
@@ -7560,6 +8346,11 @@ export interface components {
              */
             location_id?: string;
             /**
+             * @description Canal de venta (`GET /v1/channels` → `code`). Con él, los precios devueltos son los de ese canal (precio específico o recargo del canal sobre el precio base). Sin él: precios del canal Website.
+             * @example rappi
+             */
+            channel?: string;
+            /**
              * @description `pickup` recoger en tienda · `delivery` domicilio local · `shipping` envío nacional · `dine_in` en mesa (QR). Solo `delivery`/`shipping` cotizan envío.
              * @example delivery
              * @enum {string}
@@ -7693,6 +8484,18 @@ export interface components {
             shipping_address: components["schemas"]["OrderShippingAddress"];
             table_number: string | null;
             notes: string | null;
+            /**
+             * @description Etapa del flujo de casa de cambio (x-extensible-enum: `QUOTED`, `AWAITING_PAYMENT`, `PAYMENT_CLEARING`, `PAID`, `COMMITTED`, `FULFILLED`, `VOIDED_PRECOMMIT`, `REFUNDED_POSTCOMMIT`). Null en órdenes que no son FX. Las transiciones las hace SIEMPRE un operador en el dashboard (el API solo crea en `QUOTED`); escucha `order.fx_stage_changed` por webhook.
+             * @example QUOTED
+             */
+            fx_stage: string | null;
+            /**
+             * Format: date-time
+             * @description Hasta cuándo la tienda sostiene las tasas de esta orden FX (lock de tasa). Null si no es FX. Vencido sin pago, el operador puede anular (`VOIDED_PRECOMMIT`).
+             * @example 2026-08-24T14:30:00Z
+             */
+            rate_locked_until: string | null;
+            cancellation: components["schemas"]["OrderCancellation"];
         };
         /** @description Con `product_id`, `variant_id`, `modifiers` y `comment` puedes reconstruir el carrito para "volver a pedir". */
         OrderItem: {
@@ -7702,7 +8505,10 @@ export interface components {
             variant_id: string | null;
             /** @example Pizza Hawaiana */
             name: string;
-            /** @example 2 */
+            /**
+             * @description En líneas FX: cantidad de divisa negociada.
+             * @example 2
+             */
             quantity: number;
             /**
              * @description Decimal en la moneda de la organización (`currency_code`). Calculado siempre server-side.
@@ -7716,6 +8522,7 @@ export interface components {
             total: number;
             modifiers: components["schemas"]["OrderModifier"][];
             comment: string | null;
+            fx: components["schemas"]["OrderItemFx"];
         };
         OrderModifier: {
             id: string | null;
@@ -7727,6 +8534,34 @@ export interface components {
              */
             price_delta: number;
         };
+        /** @description Solo en líneas de divisa (vertical casa de cambio); null en retail. */
+        OrderItemFx: {
+            /**
+             * @description Código ISO 4217 de la divisa negociada en la línea.
+             * @example EUR
+             */
+            currency: string | null;
+            /**
+             * @description Perspectiva del CLIENTE (x-extensible-enum: `buy` = el cliente compra la divisa, `sell` = el cliente la vende). Misma convención que `POST /v1/fx/quotes`.
+             * @example buy
+             */
+            side: string;
+            /**
+             * @description Tasa pactada (moneda de la tienda por unidad de divisa).
+             * @example 12500
+             */
+            rate: number;
+            /**
+             * @description Tasa de referencia (mid) al cotizar; null si la tienda no la registró.
+             * @example 12500
+             */
+            reference_rate: number | null;
+            /**
+             * @description Neto de la línea en la moneda de la tienda (= `total` del ítem).
+             * @example 12500
+             */
+            net: number;
+        } | null;
         OrderTotals: {
             /**
              * @description Suma de líneas antes de impuestos.
@@ -7789,6 +8624,17 @@ export interface components {
             lat: number | null;
             lng: number | null;
             instructions: string | null;
+        } | null;
+        /** @description Motivo y fecha de anulación cuando el operador anuló/reembolsó la orden; null si sigue viva. */
+        OrderCancellation: {
+            /** @example Lock de tasa vencido sin pago. */
+            reason: string | null;
+            /**
+             * Format: date-time
+             * @description RFC 3339 en UTC.
+             * @example 2026-08-24T14:30:00Z
+             */
+            at: string | null;
         } | null;
         CreateOrderRequest: components["schemas"]["CartQuoteRequest"] & {
             customer?: components["schemas"]["OrderCustomerInput"];
@@ -7891,6 +8737,17 @@ export interface components {
                 name: string;
                 quantity: number;
             }[];
+            /**
+             * @description Etapa del flujo de casa de cambio (x-extensible-enum: `QUOTED`, `AWAITING_PAYMENT`, `PAYMENT_CLEARING`, `PAID`, `COMMITTED`, `FULFILLED`, `VOIDED_PRECOMMIT`, `REFUNDED_POSTCOMMIT`). Null en órdenes que no son FX. Las transiciones las hace SIEMPRE un operador en el dashboard (el API solo crea en `QUOTED`); escucha `order.fx_stage_changed` por webhook.
+             * @example QUOTED
+             */
+            fx_stage: string | null;
+            /**
+             * Format: date-time
+             * @description Hasta cuándo la tienda sostiene las tasas de esta orden FX (lock de tasa). Null si no es FX. Vencido sin pago, el operador puede anular (`VOIDED_PRECOMMIT`).
+             * @example 2026-08-24T14:30:00Z
+             */
+            rate_locked_until: string | null;
         };
         QrContextResponse: {
             data: components["schemas"]["QrContext"];
@@ -8025,9 +8882,11 @@ export interface components {
             redirect_url: string | null;
             /** @description `true` si ya existía una transacción PENDIENTE para la orden y se devolvió esa en vez de crear otra (evita doble cobro). */
             resumed: boolean;
-            decline: components["schemas"]["PaymentDecline"];
+            /** @description Motivo cuando `status` es `declined`/`error`. */
+            decline: components["schemas"]["PaymentDecline"] | null;
+            /** @description Estado 3-D Secure cuando el cobro con tarjeta se pidió con `browser_info`; `null` en los demás casos. Vuelve a consultarlo en cada sondeo: cada paso trae su propio HTML. */
+            three_ds: components["schemas"]["ThreeDsState"] | null;
         };
-        /** @description Motivo cuando `status` es `declined`/`error`. */
         PaymentDecline: {
             /**
              * @description x-extensible-enum: insufficient_funds, invalid_card, restricted_card, exceeds_limit, fraud_suspected, do_not_honor, bank_unavailable, user_abandoned, timeout, processing_error, generic_decline…
@@ -8040,7 +8899,23 @@ export interface components {
             message: string;
             /** @description Si vale la pena ofrecer reintentar (misma u otra forma de pago). */
             retryable: boolean;
-        } | null;
+        };
+        ThreeDsState: {
+            /**
+             * @description x-extensible-enum: BROWSER_INFO, FINGERPRINT, CHALLENGE, AUTHENTICATION, SUPPORTED_VERSION.
+             * @example CHALLENGE
+             */
+            step: string;
+            /**
+             * @description x-extensible-enum: PENDING, COMPLETED, ERROR, ABANDONED, Non-Authenticated.
+             * @example PENDING
+             */
+            status: string;
+            /** @description HTML del paso, ya decodificado: móntalo en un `<iframe srcDoc={render_html} key={step}>` (con `src` no funciona). BROWSER_INFO y FINGERPRINT corren solos: el iframe va oculto pero DEBE montarse o la autenticación no avanza. CHALLENGE lo ve y responde el comprador: iframe visible (~460px de alto). `null` cuando el paso no trae HTML: solo sigue sondeando. */
+            render_html: string | null;
+            /** @description `true` solo en CHALLENGE con HTML: muestra el iframe al comprador. */
+            interactive: boolean;
+        };
         /** @description Body según `method`. `card`/`saved_card` exigen que la orden se creó con `wompi_cards`; `pse` con `wompi_pse`; `nequi` con `wompi_nequi`; `bancolombia_button` con `wompi_bancolombia_button`. */
         CreatePaymentRequest: components["schemas"]["CardPaymentInput"] | components["schemas"]["SavedCardPaymentInput"] | components["schemas"]["PsePaymentInput"] | components["schemas"]["NequiPaymentInput"] | components["schemas"]["BancolombiaButtonPaymentInput"];
         CardPaymentInput: {
@@ -8066,6 +8941,7 @@ export interface components {
              * @example https://mitienda.com/pedido/1043/pago
              */
             redirect_url?: string;
+            browser_info?: components["schemas"]["BrowserInfo"];
             /** @description Session ID del script anti-fraude de Wompi (recomendado). */
             session_id?: string;
             /** @description Device ID del SDK de Wompi (opcional). */
@@ -8085,6 +8961,24 @@ export interface components {
              * @example +573001112233
              */
             phone?: string;
+        };
+        /** @description Recomendado: datos del navegador del pagador. Si vienen, el cobro se pide con autenticación **3-D Secure v2** (`is_three_ds`): el emisor puede exigir un reto y la transacción queda `pending` hasta que el comprador lo complete. Sigue `three_ds` en la respuesta y en `GET /v1/orders/{order_id}/payment`, montando `render_html` en un iframe. Sin `browser_info` el cobro va sin 3DS (varios emisores colombianos lo rechazan o lo dejan pendiente). */
+        BrowserInfo: {
+            /** @example 24 */
+            browser_color_depth: string;
+            /** @example 1080 */
+            browser_screen_height: string;
+            /** @example 1920 */
+            browser_screen_width: string;
+            /** @example es-CO */
+            browser_language: string;
+            /** @example Mozilla/5.0 (…) */
+            browser_user_agent: string;
+            /**
+             * @description `new Date().getTimezoneOffset()` en minutos, como string.
+             * @example 300
+             */
+            browser_tz: string;
         };
         SavedCardPaymentInput: {
             /**
@@ -8230,7 +9124,10 @@ export interface components {
              * @description Sigue disponible mientras el pago PSE/Bancolombia está pendiente (por si el comprador cerró la pestaña del banco).
              */
             async_payment_url: string | null;
-            decline: components["schemas"]["PaymentDecline"];
+            /** @description Motivo cuando `status` es `declined`/`error`. */
+            decline: components["schemas"]["PaymentDecline"] | null;
+            /** @description Estado 3-D Secure cuando el cobro con tarjeta se pidió con `browser_info`; `null` en los demás casos. Vuelve a consultarlo en cada sondeo: cada paso trae su propio HTML. */
+            three_ds: components["schemas"]["ThreeDsState"] | null;
         };
         SavedPaymentMethodListResponse: {
             /** @description Tarjetas vigentes del comprador, la predeterminada primero. */
@@ -8752,7 +9649,7 @@ export interface components {
             /** Format: uri */
             redirect_url: string | null;
             resumed: boolean;
-            decline: components["schemas"]["PaymentDecline"];
+            decline: components["schemas"]["PaymentDecline"] & (Record<string, never> | null);
         } | null;
         /** @description `card` (token de Wompi JS), `saved_card` (tarjeta guardada; exige `X-Buyer-Token`) o `manual` (registro del comerciante, key secreta sin buyer). */
         PayCycleRequest: components["schemas"]["CardPaymentInput"] | components["schemas"]["CycleSavedCardPaymentInput"] | components["schemas"]["CycleManualPaymentInput"];
@@ -8899,10 +9796,20 @@ export interface components {
             product_id: string;
             /**
              * Format: email
-             * @description Obligatorio para invitados (sin `X-Buyer-Token`). Con comprador autenticado se ignora: se usa su identidad.
+             * @description Identifica al invitado (sin `X-Buyer-Token`) si no envías `phone`. Con comprador autenticado se ignora: se usa su identidad.
              * @example ana@ejemplo.com
              */
             email?: string;
+            /**
+             * @description Alternativa a `email` para invitados: teléfono CON indicativo de país. A diferencia de `email`, inscribirse por teléfono CREA O ENLAZA una ficha en la agenda de la tienda (`customers`, con `origin: waitlist`), así que exige una key SECRETA con scope `customers:write`: una publishable viaja en el navegador y no puede escribir contactos. Con comprador autenticado se ignora: se usa el teléfono verificado de su cuenta.
+             * @example +573001112233
+             */
+            phone?: string;
+            /**
+             * @description Nombre del contacto. Solo se usa al CREAR la ficha; nunca pisa el nombre de una que ya existía. Se ignora sin `phone`.
+             * @example Ana Restrepo
+             */
+            name?: string;
         };
         WaitlistListResponse: {
             data: components["schemas"]["WaitlistEntry"][];
@@ -8973,7 +9880,7 @@ export interface components {
              *       "order.paid"
              *     ]
              */
-            events: ("order.created" | "order.paid" | "order.stage_changed" | "subscription.created" | "subscription.canceled" | "subscription.cycle_dispatched" | "subscription.cycle_paid" | "ping")[];
+            events: ("order.created" | "order.paid" | "order.stage_changed" | "order.fx_stage_changed" | "subscription.created" | "subscription.canceled" | "subscription.cycle_dispatched" | "subscription.cycle_paid" | "fx.quote_expiring" | "ping")[];
             /** @example ERP · sincronización de pedidos */
             description?: string | null;
         };
@@ -8996,7 +9903,7 @@ export interface components {
              *       "order.paid"
              *     ]
              */
-            events?: ("order.created" | "order.paid" | "order.stage_changed" | "subscription.created" | "subscription.canceled" | "subscription.cycle_dispatched" | "subscription.cycle_paid" | "ping")[];
+            events?: ("order.created" | "order.paid" | "order.stage_changed" | "order.fx_stage_changed" | "subscription.created" | "subscription.canceled" | "subscription.cycle_dispatched" | "subscription.cycle_paid" | "fx.quote_expiring" | "ping")[];
             /**
              * @description `disabled` deja de encolar entregas al endpoint. Las que ya estaban `pending` (o `failed` con reintentos) NO se envían: al despacharlas se marcan `failed` con `last_error = "endpoint_disabled"` y sin reintentos, y volver a `enabled` no las recupera (solo los eventos posteriores se entregan).
              * @enum {string}
@@ -9053,6 +9960,309 @@ export interface components {
              * @example 2026-08-24T14:30:00Z
              */
             processed_at: string | null;
+        };
+        FxRatesResponse: {
+            data: components["schemas"]["FxRates"];
+        };
+        FxRates: {
+            /** Format: uuid */
+            location_id: string;
+            /**
+             * @description Moneda en la que se expresan tasas y totales (moneda de la organización).
+             * @example USD
+             */
+            quote_currency: string;
+            /**
+             * Format: date-time
+             * @description RFC 3339 en UTC.
+             * @example 2026-08-24T14:30:00Z
+             */
+            as_of: string;
+            fee: {
+                /**
+                 * @description Fee de servicio por orden (moneda de cotización).
+                 * @example 12500
+                 */
+                service_fee_usd: number;
+                /**
+                 * @description Subtotal desde el cual el fee es 0.
+                 * @example 12500
+                 */
+                fee_free_threshold_usd: number;
+            };
+            /**
+             * @description Horas que la orden mantiene la tasa cotizada (`rate_locked_until`).
+             * @example 24
+             */
+            rate_lock_hours: number;
+            /**
+             * @description Vigencia del `quote_token` de `POST /v1/fx/quotes`.
+             * @example 15
+             */
+            quote_ttl_minutes: number;
+            /** @description Métodos de pago (manuales/diferidos) aceptados en `POST /v1/fx/orders`. */
+            payment_methods: components["schemas"]["FxPaymentMethod"][];
+            /** @description Opciones de entrega para `shipping_method_id` en `POST /v1/fx/quotes` (`pickup` = retiro en sucursal). */
+            shipping_methods: components["schemas"]["FxShippingMethod"][];
+            rates: components["schemas"]["FxRate"][];
+        };
+        FxPaymentMethod: {
+            /**
+             * @description x-extensible-enum: `pay_by_mail`, `ach`, `wire`.
+             * @example ach
+             */
+            code: string;
+            /** @example ACH / Bank Transfer */
+            label: string;
+        };
+        FxShippingMethod: {
+            /**
+             * @description x-extensible-enum: `pickup`, `2_day`, `overnight`.
+             * @example 2_day
+             */
+            id: string;
+            /** @example FedEx — 2-Day */
+            label: string;
+            /**
+             * @description Decimal en la moneda de la organización (`currency_code`). Calculado siempre server-side.
+             * @example 12500
+             */
+            amount: number;
+            /**
+             * @description x-extensible-enum: `PICKUP`, `SHIPMENT_NATIONAL`.
+             * @example SHIPMENT_NATIONAL
+             */
+            order_type: string;
+        };
+        FxRate: {
+            /**
+             * Format: uuid
+             * @description Id del producto-divisa. Acepta `product_id` o `code` en `POST /v1/fx/quotes`.
+             */
+            product_id: string;
+            /** @example EUR */
+            code: string;
+            /** @example Euro */
+            name: string;
+            /**
+             * @description Tasa cuando el CLIENTE COMPRA la divisa (moneda de cotización por 1 unidad de divisa). Es el precio de venta publicado por el negocio.
+             * @example 1.244212
+             */
+            buy_rate: number;
+            /**
+             * @description Tasa cuando el CLIENTE VENDE la divisa (moneda de cotización que recibe por 1 unidad). Es el precio de compra publicado por el negocio.
+             * @example 1.1512
+             */
+            sell_rate: number;
+            /**
+             * @description Tasa de referencia (mid de mercado) informativa; null si el negocio no la publica.
+             * @example 1.1976
+             */
+            reference_rate: number | null;
+            /**
+             * @description Decimales admitidos en `amount`. La plataforma opera unidades ENTERAS de divisa: un monto que no quede entero tras cuantizar responde 422 `amount_not_supported`.
+             * @example 0
+             */
+            quantity_precision: number;
+            /**
+             * Format: date-time
+             * @description RFC 3339 en UTC.
+             * @example 2026-08-24T14:30:00Z
+             */
+            updated_at: string | null;
+        };
+        FxQuoteResponse: {
+            data: components["schemas"]["FxQuote"];
+        };
+        FxQuote: {
+            /** Format: uuid */
+            location_id: string;
+            /** @example USD */
+            quote_currency: string;
+            lines: components["schemas"]["FxQuoteLine"][];
+            totals: components["schemas"]["FxQuoteTotals"];
+            shipping_method: components["schemas"]["FxShippingMethod"];
+            /**
+             * @description Solo con secret key. Umbral diario (base AML sobre bruto) desde el cual la orden exige comprador autenticado (`X-Buyer-Token`). Con publishable key no se incluye: el 401 `auth_required` de `POST /v1/fx/orders` guía el flujo.
+             * @example 12500
+             */
+            kyc_threshold_usd?: number;
+            /**
+             * @description Solo con secret key. Mismo valor que `kyc_threshold_usd`.
+             * @example 12500
+             */
+            auth_required_over_usd?: number;
+            /** @description Token firmado que FIJA estas tasas y totales. Pásalo tal cual a `POST /v1/fx/orders` antes de `quote_expires_at`. */
+            quote_token: string;
+            /**
+             * Format: date-time
+             * @description RFC 3339 en UTC.
+             * @example 2026-08-24T14:30:00Z
+             */
+            quote_expires_at: string;
+        };
+        FxQuoteLine: {
+            /** Format: uuid */
+            product_id: string;
+            /** @example EUR */
+            code: string;
+            /**
+             * @description Lado desde la perspectiva del CLIENTE: `buy` = el cliente COMPRA la divisa (recibe divisa, paga en la moneda de cotización); `sell` = el cliente VENDE la divisa (entrega divisa, recibe moneda de cotización). (x-extensible-enum: `buy`, `sell`).
+             * @example buy
+             */
+            side: string;
+            /**
+             * @description Cantidad de divisa ya cuantizada.
+             * @example 300
+             */
+            amount: number;
+            /**
+             * @description Tasa aplicada (la `buy_rate` o `sell_rate` publicada según `side`).
+             * @example 1.244212
+             */
+            rate: number;
+            reference_rate: number | null;
+            /**
+             * @description amount × rate a centavos.
+             * @example 12500
+             */
+            gross: number;
+            /**
+             * @description Neto de la línea a unidad entera de la moneda de cotización: `buy` redondea hacia abajo, `sell` hacia arriba (mismo redondeo que el mostrador; favorece al cliente).
+             * @example 12500
+             */
+            net: number;
+        };
+        FxQuoteTotals: {
+            /**
+             * @description Suma de `lines[].net`.
+             * @example 12500
+             */
+            subtotal: number;
+            /**
+             * @description Fee de servicio CON SIGNO: positivo cuando el cliente paga (alguna línea `buy`); negativo cuando todas las líneas son `sell` (se descuenta de lo que recibe); 0 desde `fee_free_threshold_usd`.
+             * @example 12500
+             */
+            fee: number;
+            /**
+             * @description Decimal en la moneda de la organización (`currency_code`). Calculado siempre server-side.
+             * @example 12500
+             */
+            shipping: number;
+            /**
+             * @description `subtotal + shipping + fee`: lo que el cliente paga (o recibe, si es venta pura).
+             * @example 12500
+             */
+            total: number;
+        };
+        FxQuoteRequest: {
+            /**
+             * Format: uuid
+             * @description Sucursal que fija las tasas (default: sucursal principal activa, igual que `GET /v1/fx/rates`).
+             */
+            location_id?: string;
+            lines: components["schemas"]["FxQuoteLineInput"][];
+            /**
+             * @description Uno de `shipping_methods[].id` de `GET /v1/fx/rates`. Default `pickup` (sin costo). Determina si la orden será recogida (`delivery.type=pickup`) o envío (`delivery.type=shipment`).
+             * @example pickup
+             */
+            shipping_method_id?: string;
+        };
+        FxQuoteLineInput: {
+            /**
+             * @description Código de la divisa tal como lo publica `GET /v1/fx/rates` (`rates[].code`).
+             * @example EUR
+             */
+            code?: string;
+            /**
+             * Format: uuid
+             * @description Alternativa a `code` (uno de los dos es obligatorio).
+             */
+            product_id?: string;
+            /**
+             * @description Lado desde la perspectiva del CLIENTE: `buy` = el cliente COMPRA la divisa (recibe divisa, paga en la moneda de cotización); `sell` = el cliente VENDE la divisa (entrega divisa, recibe moneda de cotización).
+             * @example buy
+             * @enum {string}
+             */
+            side: "buy" | "sell";
+            /**
+             * @description Cantidad de DIVISA (no de moneda de cotización). Se cuantiza a `quantity_precision` del producto.
+             * @example 300
+             */
+            amount: number;
+        };
+        CreateFxOrderRequest: {
+            /** @description `quote_token` vigente de `POST /v1/fx/quotes`. Es la ÚNICA fuente de tasas y totales: el API no acepta montos sueltos. */
+            quote_token: string;
+            customer: components["schemas"]["FxCustomerInput"];
+            delivery: components["schemas"]["FxDeliveryInput"];
+            /**
+             * @description Uno de `payment_methods[].code` de `GET /v1/fx/rates`. Pago manual/diferido: la orden nace pendiente y el operador la liquida.
+             * @example ach
+             */
+            payment_method: string;
+        };
+        /** @description KYC completo SIEMPRE (política del canal online, sin importar el monto). Campos faltantes => 422 `kyc_incomplete` con `details.missing`. */
+        FxCustomerInput: {
+            /** @example Ana */
+            first_name: string;
+            /** @example Pérez */
+            last_name: string;
+            /**
+             * Format: email
+             * @example ana@example.com
+             */
+            email?: string | null;
+            /** @example +13055550123 */
+            phone: string;
+            kyc: components["schemas"]["FxKycInput"];
+        };
+        FxKycInput: {
+            /**
+             * @description Región de nacionalidad (cerrado). Con `US` el `ssn` es obligatorio.
+             * @example US
+             * @enum {string}
+             */
+            nationality: "US" | "LATAM" | "EU" | "OTHER";
+            /** @example passport */
+            id_type: string;
+            /** @example X1234567 */
+            id_number: string;
+            /** @example Engineer */
+            occupation: string;
+            /**
+             * @description Vigencia del documento (YYYY-MM-DD). Debe ser válida al menos `min_id_validity_days` (14 por defecto): si no, 422 `id_expiring_soon`.
+             * @example 2030-01-31
+             */
+            document_expiration_date: string;
+            /** @description Obligatorio si `nationality = US`. */
+            ssn?: string | null;
+        };
+        FxDeliveryInput: {
+            /**
+             * @description Debe coincidir con el `shipping_method_id` cotizado: `pickup` ↔ `pickup`; `shipment` ↔ un método de envío. Si no coincide, 422 `delivery_mismatch` (vuelve a cotizar).
+             * @example pickup
+             * @enum {string}
+             */
+            type: "pickup" | "shipment";
+            address?: components["schemas"]["FxShipmentAddressInput"];
+        };
+        /** @description Obligatoria con `type = shipment`. */
+        FxShipmentAddressInput: {
+            /** @example 401 Biscayne Blvd */
+            line1: string;
+            line2?: string | null;
+            /** @example Miami */
+            city: string;
+            /** @example FL */
+            state: string;
+            /** @example 33132 */
+            postal_code: string;
+            /**
+             * @description Default `US` (mercado del vertical).
+             * @example US
+             */
+            country?: string;
         };
     };
     responses: never;

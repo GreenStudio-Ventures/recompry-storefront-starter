@@ -6,9 +6,10 @@
 // pasa a <PaymentStep/> (Wompi).
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Button, ErrorBanner, Field, LinkButton, Notice, SectionTitle, Spinner } from '@/components/ui';
 import { callApi, toUiError, type UiError } from '@/lib/browser-api';
+import { clearPendingPayment, readPendingPayment } from '@/lib/checkout/pending-payment';
 import { useCart } from '@/lib/cart/CartProvider';
 import { useCartQuote } from '@/lib/cart/useCartQuote';
 import { cn } from '@/lib/cn';
@@ -49,14 +50,19 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<UiError | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
+  const [pendingDismissed, setPendingDismissed] = useState(false);
+
+  // Cobro a medias de una visita anterior (localStorage). Se lee una sola vez tras hidratar: en el
+  // render del servidor no hay localStorage y leerlo en cada tecla sería gratuito pero inútil.
+  const pending = useMemo(() => (hydrated && !pendingDismissed ? readPendingPayment() : null), [hydrated, pendingDismissed]);
 
   // Idempotency-Key: una por intento; si el body cambia, se genera otra (la misma key con
   // otro body responde 409 idempotency_key_conflict).
   const idem = useRef<{ key: string; body: string } | null>(null);
 
   useEffect(() => {
-    if (hydrated && !state.lines.length && !order) router.replace('/cart');
-  }, [hydrated, state.lines.length, order, router]);
+    if (hydrated && !state.lines.length && !order && !pending) router.replace('/cart');
+  }, [hydrated, state.lines.length, order, pending, router]);
 
   async function checkCoverage() {
     if (!address_text || address_text.trim().length < 3) return;
@@ -70,6 +76,19 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
       setShippingLoading(false);
     }
   }
+
+  const onPaid = useCallback(() => {
+    clear();
+    clearPendingPayment();
+    if (order) router.push(`/track/${encodeURIComponent(order.tracking_code ?? order.id)}?nuevo=1&pago=aprobado`);
+  }, [clear, order, router]);
+
+  const onRestart = useCallback(() => {
+    // Un rechazo anula la orden en el API: el siguiente intento es un pedido nuevo, con otra key.
+    idem.current = null;
+    clearPendingPayment();
+    setOrder(null);
+  }, []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -111,24 +130,36 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
   }
 
   if (order && order.payment.method !== 'cash_on_delivery' && order.payment.status !== 'paid') {
+    return <PaymentStep order={order} customer={{ email: email.trim(), full_name: name.trim(), phone: phone.trim() }} onPaid={onPaid} onRestart={onRestart} />;
+  }
+
+  // Hay un cobro a medias de una visita anterior (el comprador salió al banco y volvió por su
+  // cuenta, o cerró la pestaña). Crear otra orden aquí sería un segundo cobro por lo mismo.
+  if (pending) {
     return (
-      <PaymentStep
-        order={order}
-        customer={{ email: email.trim(), full_name: name.trim(), phone: phone.trim() }}
-        onPaid={() => {
-          clear();
-          router.push(`/track/${encodeURIComponent(order.tracking_code ?? order.id)}?nuevo=1&pago=aprobado`);
-        }}
-        onRestart={() => {
-          idem.current = null;
-          setOrder(null);
-        }}
-      />
+      <div className="mx-auto max-w-lg space-y-4">
+        <SectionTitle title="Tienes un pago en curso" subtitle={pending.tracking_code ? `Pedido ${pending.tracking_code}` : undefined} />
+        <Notice tone="warning">
+          Empezaste a pagar {formatMoney(pending.total, pending.currency)} y no alcanzamos a confirmarlo. Continúa con ese pago antes de hacer un pedido nuevo: si lo repites podrías pagar dos veces.
+        </Notice>
+        <div className="flex flex-wrap gap-2">
+          <LinkButton href={`/pago/${pending.id}?t=${encodeURIComponent(pending.tracking_code ?? '')}`}>Continuar con el pago</LinkButton>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              clearPendingPayment();
+              setPendingDismissed(true);
+            }}
+          >
+            Empezar un pedido nuevo
+          </Button>
+        </div>
+      </div>
     );
   }
 
   const blockingIssue = quote?.issues.find((i) => ['product_not_found', 'product_unavailable', 'out_of_stock', 'selection_required', 'invalid_selection', 'no_coverage', 'address_required', 'invalid_address', 'location_closed'].includes(i.code));
-  const canSubmit = Boolean(quote && !quoting && !blockingIssue && name.trim() && isCheckoutPhone(phone) && payment && (!needsAddress || (address_text ?? '').trim().length >= 3));
+  const canSubmit = Boolean(quote && !quoting && !blockingIssue && name.trim() && isCheckoutPhone(phone) && payment && (payment === 'cash_on_delivery' || email.trim()) && (!needsAddress || (address_text ?? '').trim().length >= 3));
 
   return (
     <form onSubmit={submit}>
@@ -219,8 +250,10 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
                 <input id="co-phone" className="input" required minLength={CHECKOUT_PHONE_MIN} maxLength={CHECKOUT_PHONE_MAX} value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" placeholder="+57 300 111 2233" />
               </Field>
               <div className="sm:col-span-2">
-                <Field label="Correo (opcional)" htmlFor="co-email">
-                  <input id="co-email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+                {/* Con cualquier método de Wompi el cobro exige `customer.email` (400
+                    customer_email_required): pedirlo aquí evita llegar al pago sin correo. */}
+                <Field label={payment === 'cash_on_delivery' ? 'Correo (opcional)' : 'Correo'} htmlFor="co-email">
+                  <input id="co-email" type="email" className="input" required={payment !== 'cash_on_delivery'} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
                 </Field>
               </div>
             </div>
@@ -229,7 +262,7 @@ export function CheckoutForm({ currency, modes, paymentMethods, locations, buyer
           {/* 3. Pago */}
           <section className="card space-y-3 p-5">
             <h3 className="font-semibold">3. Pago</h3>
-            {paymentMethods.length === 0 ? <Notice tone="warning">Ningún método de pago disponible en este starter (implementa contraentrega y tarjeta; si tu tienda usa PSE/Nequi/Bancolombia, ver README → Pendientes / TODO conocidos).</Notice> : null}
+            {paymentMethods.length === 0 ? <Notice tone="warning">La tienda no tiene métodos de pago habilitados. Actívalos en Recompry → Configuración → Pagos online.</Notice> : null}
             {paymentMethods.map((m) => (
               <label key={m.code} className={cn('flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm', payment === m.code ? 'border-brand bg-brand/5' : 'border-slate-200')}>
                 <input type="radio" name="payment" value={m.code} checked={payment === m.code} onChange={() => setPayment(m.code)} className="accent-[var(--brand-primary)]" />
