@@ -88,7 +88,7 @@ están pensados para versionarse).
 
 ## 3. Desarrollo
 
-Requiere **Node ≥ 20.12** (`engines` en `package.json`; `scripts/send-test-webhook.mjs` usa `process.loadEnvFile`).
+Requiere **Node ≥ 22** (`engines` en `package.json`; wrangler 4.152 no arranca con Node 20; `scripts/send-test-webhook.mjs` usa `process.loadEnvFile`).
 
 ```bash
 npm install

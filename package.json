@@ -13,7 +13,7 @@
   },
   "license": "MIT",
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.0.0"
   },
   "cloudflare": {
     "label": "Recompry Storefront Starter",
@@ -27,31 +27,31 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "check": "opennextjs-cloudflare build && tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "check": "node scripts/assert-security-floor.mjs && opennextjs-cloudflare build && tsc --noEmit && vitest run && wrangler deploy --dry-run",
     "preview": "opennextjs-cloudflare build && wrangler dev",
-    "deploy": "opennextjs-cloudflare build && wrangler deploy",
+    "deploy": "node scripts/assert-security-floor.mjs && opennextjs-cloudflare build && wrangler deploy",
     "cf:secrets:bulk": "wrangler secret bulk .env.production.secrets",
     "types": "wrangler types --env-interface CloudflareEnv env.d.ts",
     "webhook:test": "node scripts/send-test-webhook.mjs"
   },
   "dependencies": {
-    "next": "16.1.6",
+    "next": "16.4.3",
     "openapi-fetch": "^0.17.0",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
     "server-only": "^0.0.1"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "1.17.1",
+    "@opennextjs/cloudflare": "1.20.13",
     "@types/node": "22.9.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.1",
     "eslint-config-next": "16.1.6",
-    "postcss": "8.4.49",
+    "postcss": "8.5.31",
     "tailwindcss": "3.4.17",
     "typescript": "5.7.2",
-    "vitest": "^4.1.10",
-    "wrangler": "4.71.0"
+    "vitest": "^4.1.12",
+    "wrangler": "4.152.0"
   }
 }
