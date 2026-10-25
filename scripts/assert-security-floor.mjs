@@ -3,10 +3,13 @@
 // del piso de seguridad. Barrido 2026-10-25: next 16.1.6 tenía 38 avisos abiertos (CSRF y DoS
 // de Server Actions, bypasses de middleware, RCE del 14-oct) y un `npm audit fix` o un merge
 // pueden volver a bajar versiones sin que nadie lo note. Revisa TODAS las copias del lockfile,
-// también las anidadas (node_modules/x/node_modules/next).
+// también las anidadas (node_modules/x/node_modules/next), y lo INSTALADO: es lo que entra al
+// bundle, y un node_modules viejo o compartido por symlink entre worktrees puede no ser el del
+// lockfile (2026-10-25: dos worktrees con lockfile 16.1.6 construían con 16.4.3 por symlink).
 // Uso: node scripts/assert-security-floor.mjs [ruta/a/package-lock.json]
 // Bypass consciente: SKIP_SECURITY_FLOOR=1 npm run deploy
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 
 // paquete → versión mínima sin avisos conocidos. Con { mayor: mínima } solo se exige en esas
 // series (form-data 2.x/3.x no está afectado por el aviso de la 4.x).
@@ -23,6 +26,14 @@ const FLOOR = {
   postcss: "8.5.23", // XSS en stringify y lectura de archivos vía sourceMappingURL
   "proxy-addr": "2.0.8", // GHSA-jqcg-44mw-7w3h: suplantación de IP con IPv6 mapeada
   "form-data": { 4: "4.0.6" }, // GHSA-hmw2-7cc7-3qxx: inyección CRLF en multipart
+  // Transitivas de runtime (la mayoría llega por el MCP SDK: express, ajv) que el barrido parchó.
+  "fast-uri": { 3: "3.1.9" }, // confusión de host/authority al serializar URIs (7 avisos)
+  ws: { 8: "8.21.0" }, // memoria sin inicializar y DoS por fragmentos
+  "path-to-regexp": { 8: "8.4.0" }, // ReDoS con grupos opcionales y comodines
+  "body-parser": { 2: "2.4.0" }, // DoS: límite inválido y bytes después del cuerpo comprimido
+  "ip-address": { 10: "10.7.4" }, // clasificación de rangos IPv6 (SSRF)
+  qs: "6.16.0", // DoS con isBuffer controlado por el atacante
+  "fast-xml-parser": { 5: "5.6.1" }, // expansión de entidades sin límite
 };
 
 if (process.env.SKIP_SECURITY_FLOOR === "1") {
@@ -47,30 +58,65 @@ function isBelow(version, minimum) {
   return a.pre && !b.pre;
 }
 
-const lockfilePath = process.argv[2] ?? "package-lock.json";
-const packages = JSON.parse(readFileSync(lockfilePath, "utf8")).packages ?? {};
-const violations = [];
-let checked = 0;
+const readPackages = (file) => JSON.parse(readFileSync(file, "utf8")).packages ?? {};
+const packageName = (path, meta) =>
+  meta.name ?? path.slice(path.lastIndexOf("node_modules/") + "node_modules/".length);
 
-for (const [path, meta] of Object.entries(packages)) {
-  if (!path || !meta?.version) continue;
-  const name = meta.name ?? path.slice(path.lastIndexOf("node_modules/") + "node_modules/".length);
-  const rule = FLOOR[name];
-  if (!rule) continue;
-  const minimum = typeof rule === "string" ? rule : rule[parse(meta.version).major];
-  if (!minimum) continue;
-  checked += 1;
-  if (isBelow(meta.version, minimum)) violations.push(`${path} ${meta.version} (mínimo ${minimum})`);
+function check(packages, source) {
+  let checked = 0;
+  for (const [path, meta] of Object.entries(packages)) {
+    if (!path || !meta?.version) continue;
+    const rule = FLOOR[packageName(path, meta)];
+    const minimum = typeof rule === "string" ? rule : rule?.[parse(meta.version).major];
+    if (!minimum) continue;
+    checked += 1;
+    if (isBelow(meta.version, minimum)) violations.push(`${source}: ${path} ${meta.version} (mínimo ${minimum})`);
+  }
+  return checked;
+}
+
+const explicitLockfile = process.argv[2];
+const lockfilePath = explicitLockfile ?? "package-lock.json";
+const lockPackages = readPackages(lockfilePath);
+const violations = [];
+const checkedLock = check(lockPackages, lockfilePath);
+let installedNote = "";
+
+// Con un lockfile explícito se audita solo ese archivo; en un repo, también lo instalado.
+if (!explicitLockfile && existsSync("node_modules")) {
+  const target = realpathSync("node_modules");
+  const where = target === resolve("node_modules") ? "node_modules" : `node_modules → ${target}`;
+  const installed = existsSync("node_modules/.package-lock.json")
+    ? readPackages("node_modules/.package-lock.json")
+    : {};
+  // npm deja en .package-lock.json la foto del árbol instalado; las versiones de primer nivel se
+  // leen además del package.json real, por si esa foto falta o quedó vieja.
+  for (const name of Object.keys(FLOOR)) {
+    const manifest = `node_modules/${name}/package.json`;
+    if (existsSync(manifest)) {
+      installed[`node_modules/${name}`] = { version: JSON.parse(readFileSync(manifest, "utf8")).version };
+    }
+  }
+  const checkedInstalled = check(installed, where);
+  for (const name of Object.keys(FLOOR)) {
+    const key = `node_modules/${name}`;
+    const locked = lockPackages[key]?.version;
+    const actual = installed[key]?.version;
+    if (locked && actual && locked !== actual) {
+      violations.push(`${where}: ${name} instalado ${actual} ≠ lockfile ${locked} (corre npm ci en este repo)`);
+    }
+  }
+  installedNote = ` y ${checkedInstalled} en lo instalado (${where})`;
 }
 
 if (violations.length > 0) {
-  console.error(`✗ Abortado: ${lockfilePath} resuelve versiones por debajo del piso de seguridad:\n`);
+  console.error("✗ Abortado: hay versiones por debajo del piso de seguridad o un node_modules que no es el del lockfile:\n");
   for (const violation of violations) console.error(`  - ${violation}`);
   console.error(
-    "\nSube esas versiones o rebasa la rama sobre el commit de seguridad del 2026-10-25.",
+    "\nSube esas versiones, corre npm ci o rebasa la rama sobre el commit de seguridad del 2026-10-25.",
   );
   console.error("Bypass consciente: SKIP_SECURITY_FLOOR=1 npm run deploy");
   process.exit(1);
 }
 
-console.log(`✓ Piso de seguridad OK: ${checked} copias revisadas en ${lockfilePath}.`);
+console.log(`✓ Piso de seguridad OK: ${checkedLock} copias revisadas en ${lockfilePath}${installedNote}.`);
