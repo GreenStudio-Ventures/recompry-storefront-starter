@@ -27,9 +27,9 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "check": "opennextjs-cloudflare build && tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "check": "node scripts/assert-security-floor.mjs && opennextjs-cloudflare build && tsc --noEmit && vitest run && wrangler deploy --dry-run",
     "preview": "opennextjs-cloudflare build && wrangler dev",
-    "deploy": "opennextjs-cloudflare build && wrangler deploy",
+    "deploy": "node scripts/assert-security-floor.mjs && opennextjs-cloudflare build && wrangler deploy",
     "cf:secrets:bulk": "wrangler secret bulk .env.production.secrets",
     "types": "wrangler types --env-interface CloudflareEnv env.d.ts",
     "webhook:test": "node scripts/send-test-webhook.mjs"
